@@ -1,5 +1,6 @@
 """Shared rendering helpers. Scenes print through out() so --svg can replay them."""
 
+import os
 import time
 
 from rich import box
@@ -9,6 +10,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .activity import activity
+from .hostmon import LIMIT
 
 GV = "green3"     # gVisor colour
 KATA = "orange3"  # Kata colour
@@ -181,10 +183,29 @@ def percentile(xs, p):
 
 
 def title(n, text, sub):
-    return Panel(Text.assemble((text, "bold white"), "\n",
+    """A scene's heading, with the resource setup right under it."""
+    head = Panel(Text.assemble((text, "bold white"), "\n",
                                (sub, "italic grey70"), justify="center"),
                  title=f"[bold]{n}[/]", border_style="bright_blue",
                  box=box.HEAVY)
+    return Group(head, limit_banner())
+
+
+def limit_banner():
+    """One line naming the cgroup limit every sandbox runs under (or none)."""
+    if LIMIT["cgroup"]:
+        parts = []
+        if LIMIT["cpus"]:
+            parts.append(f"{LIMIT['cpus']} CPUs (0–{LIMIT['cpus'] - 1})")
+        if LIMIT["mem_bytes"]:
+            parts.append(f"{LIMIT['mem_bytes'] / 2**30:g} GiB memory")
+        return Text.assemble(
+            ("⚙ cgroup limit ", "bold black on yellow"),
+            (f" all sandboxes share {' and '.join(parts)}, like a smaller "
+             f"node · /sys/fs/cgroup/{LIMIT['cgroup']}", "yellow"))
+    return Text.assemble(("⚙ no cgroup limit ", "bold black on grey62"),
+                         (f" sandboxes may use the whole host "
+                          f"({os.cpu_count()} CPUs)", "grey62"))
 
 
 def source_line(ref):

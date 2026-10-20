@@ -13,6 +13,8 @@ sudo ./demo.py startup cr   # chosen scenes only
 sudo ./demo.py --auto 4     # hands-free: advance every 4 s
 sudo ./demo.py --svg out/   # also save each final screen as SVG for slides
 sudo ./demo.py cr --cr-cold # restore from disk instead of the page cache
+sudo ./demo.py --cpus 8 --memory 16G   # a different limit (default 16 CPUs, 64G)
+sudo ./demo.py --no-limit               # sandboxes may use the whole host
 ```
 
 A **Behind the scenes** panel shows every runsc command as it runs (with its
@@ -36,6 +38,31 @@ sandboxes on exit and on Ctrl-C. Only one run can use a work directory at a
 time: a second run on the same `--workdir` refuses to start, because every run
 begins by deleting all sandboxes there. Raw numbers go to
 `/tmp/gvisor-demo/gvisor-demo-results.json`.
+
+## Limiting the demo to a smaller node
+
+By default the demo behaves like a 16-CPU, 64 GiB node; `--no-limit` lifts
+that. A yellow line under every scene title names the limit in force (or
+says there is none), so the audience knows what the numbers ran on.
+
+`--cpus N` and `--memory SIZE` put every sandbox in one cgroup v2 group,
+pinned to the first N CPUs (`cpuset`, so runsc and the Go runtime inside it
+see N CPUs) and capped at SIZE (`memory.max`). runsc places each sandbox in
+the cgroup named by its spec's `cgroupsPath` (by default `/<container id>`
+at the cgroup root), so with a limit each sandbox gets a small bundle of its
+own: a `config.json` that points at the shared rootfs and sets
+`cgroupsPath` to `/<group>/<container id>`. The group is removed at exit.
+
+With a limit, CPU figures are the group's own use (`cpu.stat`), out of N
+cores, and the density projection uses the memory limit. What the limit covers: every sandbox's processes (sentry, gofer, stubs) in
+all scenes, including probes, clones and restores; their memory, including
+kernel memory and the page cache they create; and each `runsc` command once
+it joins the sandbox's cgroup. Not covered: the first moments of each
+`runsc` command, and the demo's own Python process (UI and sampler), which
+stays in the caller's cgroup. A limit larger than the host is reduced to
+what the host has.
+Measured with `--cpus 8`: the group's CPU use tops out at 7.6 cores when
+sandboxes start back to back.
 
 ## Layout
 
@@ -171,5 +198,6 @@ with 1000 running.
 
 Sizes can be changed with flags: `--runs`, `--burst`, `--cr-mb`, `--cr-warm`,
 `--cr-cold`, `--clones`, `--density`, `--step`, `--parallel`, `--probes`,
-`--sample-interval`, `--idle-window`, `--platform`, `--activity`,
+`--sample-interval`, `--idle-window`, `--cpus`, `--memory`,
+`--platform`, `--activity`,
 `--activity-width`.

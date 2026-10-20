@@ -69,8 +69,12 @@ def run(rs, ref, args, results):
                       f"{statistics.median(u):.0f} ms median "
                       f"(n={len(u)}, {u[0]:.0f}–{u[-1]:.0f} ms)", "—")
     out(t)
+    limits = " · ".join(x for x in (
+        f"{h['limit_cpus']} CPUs" if h.get("limit_cpus") else "",
+        f"{h['limit_mem_gib']:g} GiB" if h.get("limit_mem_gib") else "") if x)
     out(Text(f"runsc {rs.version()} · {h['machine']} · "
              f"{h['cpus']} vCPU · kernel {h['kernel']} · "
+             + (f"sandboxes limited to {limits} · " if limits else "") +
              "network=none · busybox workload", style="grey50"))
     for k in ("startup", "checkpoint", "density"):
         if "source" in ref.get(k, {}):

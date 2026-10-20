@@ -25,6 +25,11 @@ def run(rs, ref, args, results):
     t.add_column("Host check")
     t.add_column("Result")
     t.add_row("Machine", f"{f['machine']} · {f['cpus']} vCPU · {f['mem_gib']} GiB")
+    if f["limit_cpus"] or f["limit_mem_gib"]:
+        t.add_row("Sandboxes limited to", " · ".join(
+            x for x in (f"{f['limit_cpus']} CPUs" if f["limit_cpus"] else "",
+                        f"{f['limit_mem_gib']:g} GiB" if f["limit_mem_gib"]
+                        else "") if x) + " (like a smaller node)")
     t.add_row("/dev/kvm", "[green]present[/]" if f["kvm"] else "[red]absent[/]")
     t.add_row("CPU virtualization (vmx/svm)",
               "[green]exposed[/]" if f["virt_flags"] else

@@ -35,12 +35,59 @@ def available_kib():
     return meminfo_kib()["MemAvailable"] + pcp * os.sysconf("SC_PAGE_SIZE") // 1024
 
 
-def cpu_jiffies():
-    """(busy, total) CPU time of the whole host, from /proc/stat."""
+CGROUP_ROOT = Path("/sys/fs/cgroup")
+# Set by limit_node(): the cgroup (name under CGROUP_ROOT) that holds every
+# sandbox, and its CPU and memory caps. None means no limit.
+LIMIT = {"cgroup": None, "cpus": None, "mem_bytes": None}
+
+
+def limit_node(name, cpus=None, mem_bytes=None):
+    """Create a cgroup v2 group capped like a smaller node.
+
+    cpus pins it to the first cpus CPUs (cpuset, so runsc and Go inside see
+    that many); mem_bytes sets memory.max. Sandboxes are placed under it
+    by giving each a cgroupsPath of /<name>/<container id>.
+    """
+    cg = CGROUP_ROOT / name
+    remove_cgroup(name)
+    cg.mkdir()
+    if cpus:
+        (cg / "cpuset.cpus").write_text(f"0-{cpus - 1}")
+        (cg / "cpuset.mems").write_text(
+            (CGROUP_ROOT / "cpuset.mems.effective").read_text().strip())
+    if mem_bytes:
+        (cg / "memory.max").write_text(str(mem_bytes))
+    (cg / "cgroup.subtree_control").write_text("+cpuset +cpu +memory +pids")
+    LIMIT.update(cgroup=name, cpus=cpus, mem_bytes=mem_bytes)
+
+
+def remove_cgroup(name):
+    """Remove a (now empty) cgroup tree, deepest directories first."""
+    cg = CGROUP_ROOT / name
+    if not cg.exists():
+        return
+    for d in sorted((p for p in cg.rglob("*") if p.is_dir()),
+                    key=lambda p: len(p.parts), reverse=True) + [cg]:
+        try:
+            d.rmdir()
+        except OSError:
+            pass
+
+
+def cpu_capacity():
+    """CPUs available to the sandboxes: the limit, or the whole host."""
+    return LIMIT["cpus"] or os.cpu_count()
+
+
+def cpu_busy_s():
+    """CPU seconds used so far: by the limited group, or by the whole host."""
+    if LIMIT["cgroup"]:
+        for line in (CGROUP_ROOT / LIMIT["cgroup"] / "cpu.stat").open():
+            if line.startswith("usage_usec"):
+                return int(line.split()[1]) / 1e6
     with open("/proc/stat") as f:
         v = [int(x) for x in f.readline().split()[1:]]
-    idle = v[3] + v[4]  # idle + iowait
-    return sum(v) - idle, sum(v)
+    return (sum(v) - v[3] - v[4]) / os.sysconf("SC_CLK_TCK")  # minus idle, iowait
 
 
 def kernel_kib(mi):
@@ -174,7 +221,7 @@ class Sampler(threading.Thread):
         self.lock = threading.Lock()
         self.stop_ev = threading.Event()
         self._prev_cpu, self._prev_t = {}, None
-        self._prev_host = cpu_jiffies()
+        self._prev_busy = cpu_busy_s()
         self._pids = {}
 
     def run(self):
@@ -220,9 +267,9 @@ class Sampler(threading.Thread):
                 if dt and prev is not None else None
             total_cores += b["cpu_cores"] or 0
         mi = meminfo_kib()
-        busy, total = cpu_jiffies()
-        host_cpu = (busy - self._prev_host[0]) / max(1, total - self._prev_host[1])
-        self._prev_host = (busy, total)
+        busy = cpu_busy_s()
+        host_cores = (busy - self._prev_busy) / dt if dt else 0.0
+        self._prev_busy = busy
         point = {
             "t": t - self.t0, "n": len(boxes),
             "host_mib": (self.base_avail - available_kib()) / 1024,
@@ -230,9 +277,10 @@ class Sampler(threading.Thread):
             "dirty_mib": sum(b["dirty_kib"] for b in boxes.values()) / 1024,
             "kernel_mib": (kernel_kib(mi) - kernel_kib(self.base)) / 1024,
             "cpu_cores": total_cores if dt else None,
-            # Whole-host busy fraction, including the runsc commands that
-            # start sandboxes (which no per-sandbox counter sees).
-            "host_cpu": host_cpu,
+            # Cores busy: the whole host, or the limited group; includes the
+            # runsc commands that start sandboxes (no per-sandbox counter
+            # sees those).
+            "host_cores": host_cores,
             "procs": sum(b["procs"] for b in boxes.values()),
             "threads": sum(b["threads"] for b in boxes.values()),
         }
@@ -271,6 +319,9 @@ def host_facts():
         flags = next((l for l in f if l.startswith("flags")), "")
     facts["virt_flags"] = " vmx " in flags or " svm " in flags
     facts["cpus"] = os.cpu_count()
+    facts["limit_cpus"] = LIMIT["cpus"]
+    facts["limit_mem_gib"] = LIMIT["mem_bytes"] / 2**30 \
+        if LIMIT["mem_bytes"] else None
     facts["mem_gib"] = round(os.sysconf("SC_PAGE_SIZE") *
                              os.sysconf("SC_PHYS_PAGES") / 2**30)
     facts["kernel"] = os.uname().release

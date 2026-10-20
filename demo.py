@@ -10,6 +10,7 @@ Usage: sudo ./demo.py [all|anywhere|startup|cr|density|summary] [options]
 
 import argparse
 import fcntl
+import hashlib
 import io
 import json
 import os
@@ -22,10 +23,22 @@ sys.path.insert(0, str(HERE))  # also works under `python3 -I`
 
 from rich.console import Console  # noqa: E402
 
+from gvdemo.hostmon import limit_node, remove_cgroup  # noqa: E402
 from gvdemo.runsc import Runsc  # noqa: E402
 from gvdemo.scenes import SCENES  # noqa: E402
 from gvdemo.activity import activity  # noqa: E402
 from gvdemo.ui import ACTIVITY, FRAME, ask_next, console  # noqa: E402
+
+
+def parse_size(text):
+    """'16G', '512M' or a byte count, to bytes; None stays None."""
+    if not text:
+        return None
+    units = {"K": 2**10, "M": 2**20, "G": 2**30, "T": 2**40}
+    t = text.strip().upper().rstrip("IB")
+    if t and t[-1] in units:
+        return int(float(t[:-1]) * units[t[-1]])
+    return int(t)
 
 
 def main():
@@ -56,6 +69,13 @@ def main():
                     help="seconds between density samples")
     ap.add_argument("--idle-window", type=float, default=5,
                     help="seconds to watch the sandboxes idle after the ramp")
+    ap.add_argument("--cpus", type=int, default=16, metavar="N",
+                    help="limit all sandboxes to N CPUs, like a smaller node "
+                         "(default 16)")
+    ap.add_argument("--memory", default="64G", metavar="SIZE",
+                    help="limit all sandboxes to SIZE of memory (default 64G)")
+    ap.add_argument("--no-limit", action="store_true",
+                    help="no cgroup limit: sandboxes may use the whole host")
     ap.add_argument("--activity", choices=["auto", "side", "bottom", "off"],
                     default="auto",
                     help="behind-the-scenes panel: beside the scene when the "
@@ -96,6 +116,20 @@ def main():
     lock.truncate()
     lock.write(str(os.getpid()))
     lock.flush()
+    cg_name = None
+    if not args.no_limit:
+        # A limit larger than the host means the host: say so, don't fail.
+        cpus = min(args.cpus, os.cpu_count()) if args.cpus else None
+        total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+        mem = parse_size(args.memory)
+        mem = min(mem, total) if mem else None
+        if cpus != args.cpus or (mem and mem < parse_size(args.memory)):
+            console.print(f"[yellow]This host has {os.cpu_count()} CPUs and "
+                          f"{total / 2**30:.0f} GiB; limiting to what it has.")
+        # One group per work dir; the run lock makes it ours alone.
+        cg_name = "gvisor-demo-" + hashlib.sha1(
+            str(Path(args.workdir).resolve()).encode()).hexdigest()[:8]
+        limit_node(cg_name, cpus, mem)
     flags = [f"--platform={args.platform}"] if args.platform else []
     rs = Runsc(args.runsc, args.workdir, flags)
     rs.cleanup()
@@ -132,6 +166,8 @@ def main():
     finally:
         with console.status("Cleaning up sandboxes…"):
             rs.cleanup()
+            if cg_name:
+                remove_cgroup(cg_name)
 
 
 if __name__ == "__main__":

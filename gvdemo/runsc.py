@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .activity import activity
+from .hostmon import LIMIT
 
 
 class Runsc:
@@ -20,7 +21,24 @@ class Runsc:
         activity.set_header(f"runsc {' '.join(self.flags)} <command>")
 
     def cmd(self, *args):
-        return [self.binary, *self.flags, *args]
+        return [self.binary, *self.flags, *self.place(args)]
+
+    def place(self, args):
+        """With a node limit, run each sandbox inside the limited cgroup.
+
+        runsc puts a sandbox in the cgroup named by its spec's cgroupsPath
+        (by default /<container id>, at the cgroup root). Bundles are shared
+        by many sandboxes, so each sandbox gets its own small bundle: a
+        config.json pointing at the shared rootfs, with cgroupsPath
+        /<limit group>/<container id>.
+        """
+        args = list(args)
+        if not LIMIT["cgroup"] or "--bundle" not in args:
+            return args
+        i = args.index("--bundle")
+        args[i + 1] = str(sandbox_bundle(args[i + 1], args[-1],
+                                         LIMIT["cgroup"]))
+        return args
 
     def _run(self, args, log=True, fail_note=None, **kw):
         """subprocess.run of runsc, logged in the activity panel.
@@ -116,6 +134,18 @@ def make_bundle(workdir, name, script, tmpfs_mb=None):
     }
     (b / "config.json").write_text(json.dumps(spec))
     return b
+
+
+def sandbox_bundle(base, cid, cgroup):
+    """A per-sandbox bundle that shares base's rootfs and sets its cgroup."""
+    base = Path(base)
+    d = base / "ids" / cid
+    d.mkdir(parents=True, exist_ok=True)
+    spec = json.loads((base / "config.json").read_text())
+    spec["root"]["path"] = str(base / "rootfs")
+    spec["linux"]["cgroupsPath"] = f"/{cgroup}/{cid}"
+    (d / "config.json").write_text(json.dumps(spec))
+    return d
 
 
 def time_to_ready(rs, bundle, cid):

@@ -1,6 +1,5 @@
 """Scene 4: pack idle sandboxes onto one host and watch what they cost."""
 
-import os
 import statistics
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -13,7 +12,8 @@ from rich.table import Table
 from rich.text import Text
 
 from ..activity import activity
-from ..hostmon import Sampler, available_kib, host_facts, wait_settled
+from ..hostmon import (LIMIT, Sampler, available_kib, cpu_capacity,
+                       host_facts, wait_settled)
 from ..runsc import make_bundle, time_to_ready
 from ..ui import (FRAME, GV, KATA, bar, console, fmt_cpu, fmt_ms,
                   line_chart, main_width, meter, millicores, out, percentile, source_line, tile, title,
@@ -64,7 +64,7 @@ def run(rs, ref, args, results):
         rate = f"{state['n'] / el:.0f}/s" if el else "…"
         last = probes[-1][1] if probes else None
         W = main_width()
-        ncpu = os.cpu_count()
+        ncpu = cpu_capacity()
 
         # 1. Sandboxes up and running, as progress toward the target.
         procs, threads = p.get("procs", 0), p.get("threads", 0)
@@ -89,8 +89,9 @@ def run(rs, ref, args, results):
             tile("Private memory, each", f"{dirty:.1f} MiB",
                  f"PSS {per('pss_mib'):.1f} · host {per_host:.1f} MiB"),
             tile("CPU per sandbox, now", fmt_cpu(per("cpu_cores")),
-                 f"host peak {fmt_cpu(max(x['host_cpu'] for x in series) * ncpu)}"
-                 f" of {ncpu}" if series else ""),
+                 f"{'node' if LIMIT['cpus'] else 'host'} peak "
+                 f"{fmt_cpu(max(x['host_cores'] for x in series))} of {ncpu}"
+                 if series else ""),
             tile("Startup latency",
                  fmt_ms(statistics.median(last)) if last else "…",
                  f"empty host: {fmt_ms(statistics.median(probes[0][1]))}"
@@ -124,9 +125,10 @@ def run(rs, ref, args, results):
                 lines.insert(0, Text(f"{kata_mib / dirty:.0f}× less private "
                                      "memory per sandbox", style="bold white"))
             if per_host:
-                mem_gib = results["host"]["mem_gib"]
+                lim = results["host"].get("limit_mem_gib")
+                mem_gib = lim or results["host"]["mem_gib"]
                 lines.append(Text.assemble(
-                    (f"This {mem_gib} GiB host fits ≈ "
+                    (f"This {mem_gib:g} GiB {'node' if lim else 'host'} fits ≈ "
                      f"{int(mem_gib * 1024 * 0.9 / per_host):,} gVisor vs ≈ "
                      f"{int(mem_gib * 1024 * 0.9 / kata_mib):,} Kata", "white"),
                     ("  (memory only)", "grey50")))
@@ -143,8 +145,8 @@ def run(rs, ref, args, results):
         metrics = [
             ("Host RAM used", [(x["t"], x["host_mib"]) for x in series],
              lambda v: f"{v:,.0f} MiB"),
-            (f"Host CPU (cores, of {ncpu})", [(x["t"], x["host_cpu"] * ncpu)
-                                              for x in series],
+            (f"{'Node CPU, limited to' if LIMIT['cgroup'] else 'Host CPU, of'} "
+             f"{ncpu} cores", [(x["t"], x["host_cores"]) for x in series],
              fmt_cpu),
             ("Private memory per sandbox", [(x["t"], x["dirty_mib"] / x["n"])
                                             for x in series if x["n"]],
@@ -307,8 +309,8 @@ def run(rs, ref, args, results):
             idle_pts = [x for x in sr[idle_from:] if x["cpu_cores"] is not None]
             n_now = sr[-1]["n"] if sr else 0
             dirty_now = sr[-1]["dirty_mib"] / n_now if n_now else 0
-            host_cpu = statistics.mean(x["host_cpu"] for x in idle_pts) * \
-                os.cpu_count() if idle_pts else 0
+            host_cpu = statistics.mean(x["host_cores"] for x in idle_pts) \
+                if idle_pts else 0
             box_cpu = statistics.mean(x["cpu_cores"] for x in idle_pts) / \
                 max(1, n_now) if idle_pts else 0
             msg = (f"idle: host CPU {fmt_cpu(host_cpu)}, each sandbox "
