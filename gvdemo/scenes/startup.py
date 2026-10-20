@@ -4,7 +4,6 @@ import statistics
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from rich.align import Align
 from rich.console import Group
 from rich.live import Live
 from rich.panel import Panel
@@ -13,46 +12,49 @@ from rich.text import Text
 
 from ..runsc import make_bundle, time_to_ready
 from ..ui import (FRAME, GV, KATA, bar, console, fmt_ms, fmt_spread, out,
-                  pause, percentile, source_line, title)
+                  main_width, pause, percentile, source_line, title,
+                  with_activity)
 
 
-def kata_startup_ms(kref, gvisor_ms):
-    """The Kata startup reference: absolute, or a published gap to gVisor."""
-    if "value_ms" in kref:
-        return kref["value_ms"]
-    if "delta_ms" in kref and gvisor_ms:
-        return gvisor_ms + kref["delta_ms"]
-    return None
+def kata_startup_ms(kref):
+    """The fixed Kata startup reference, or None until one is measured."""
+    return kref.get("value_ms")
 
 
 def run(rs, ref, args, results):
     console.clear()
     out(title("2", "Startup latency",
-              "Time from `run` until the app prints its first line"))
+              "Measured from `runsc run` until the sandbox is ready: the app "
+              "inside is running and has printed its first line"))
     b = make_bundle(rs.workdir, "startup", "echo ready")
     kref = ref.get("startup", {})
 
     seq, burst = [], [None] * args.burst
     state = {"phase": "sequential"}
 
-    def render():
-        kata_ms = kata_startup_ms(kref, statistics.median(seq) if seq else 0)
-        vmax = max([kata_ms or 0] + seq + [x for x in burst if x] + [1])
+    def body():
+        kata_ms = kata_startup_ms(kref)
+        vmax = max([kata_ms or 0] + seq + [1])  # the burst has its own panel
         g = Table.grid(padding=(0, 1))
         g.add_column(width=16, justify="right")
         g.add_column(width=52)
         g.add_column(width=22)
         if seq:
             med = statistics.median(seq)
-            g.add_row(Text("gVisor", style=f"bold {GV}"), bar(med, vmax, 50, GV),
-                      Text(f"{fmt_ms(med)} median", style=f"bold {GV}"))
+            # A lone bar compares nothing: show the number until Kata has one.
+            g.add_row(Text("gVisor", style=f"bold {GV}"),
+                      bar(med, vmax, 50, GV) if kata_ms else
+                      Text(f"{fmt_ms(med)} median", style="bold white"),
+                      Text(f"{fmt_ms(med)} median", style=f"bold {GV}")
+                      if kata_ms else "")
             g.add_row("", Text(fmt_spread(seq), style="grey50"), "")
         if kata_ms:
             g.add_row(Text("Kata (ref.)", style=f"bold {KATA}"),
                       bar(kata_ms, vmax, 50, KATA),
                       Text(f"{fmt_ms(kata_ms)}", style=f"bold {KATA}"))
-            if "label" in kref:
-                g.add_row("", Text(kref["label"], style="grey50"), "")
+        else:
+            g.add_row(Text("Kata", style="grey50"), Text(
+                "not measured yet (see README TODO)", style="grey50"), "")
         parts = [Panel(g, title="One sandbox at a time", border_style="white",
                        subtitle=f"{len(seq)}/{args.runs} runs")]
         if kata_ms:
@@ -60,9 +62,10 @@ def run(rs, ref, args, results):
         if state["phase"] == "burst" or any(burst):
             done = [x for x in burst if x]
             grid = Text()
+            per_row = max(10, min(50, (main_width() - 6) // 2))
             for i, x in enumerate(burst):
                 grid.append("■ " if x else "□ ", style=GV if x else "grey37")
-                if (i + 1) % 25 == 0 and i + 1 < len(burst):
+                if (i + 1) % per_row == 0 and i + 1 < len(burst):
                     grid.append("\n")
             summary = Text()
             if "burst_wall" in state:
@@ -78,7 +81,11 @@ def run(rs, ref, args, results):
                                subtitle=f"{len(done)}/{len(burst)} ready"))
         return Group(*parts)
 
-    with Live(render(), console=console, refresh_per_second=20) as live:
+    def render():
+        return with_activity(body())
+
+    with Live(console=console, refresh_per_second=20,
+              get_renderable=render) as live:
         for i in range(args.runs):
             dt = time_to_ready(rs, b, f"s{i:04d}")
             if dt:
@@ -99,12 +106,7 @@ def run(rs, ref, args, results):
     FRAME.append(render())
     results["startup"] = {"seq_ms": seq, "burst_ms": burst,
                           "burst_wall_ms": state["burst_wall"]}
-    # TODO: the Kata bar and this banner rest on a 2021 published gap
-    # (Kata 1.11 vs gVisor 2020). Measure current Kata on a KVM host and put
-    # the result in kata_reference.json as startup.value_ms.
-    if seq and "delta_ms" in kref:
-        x = kref["delta_ms"] / statistics.median(seq)
-        out(Align.center(Text(
-            f" Kata's published extra startup time alone is {x:.0f}× "
-            "gVisor's whole startup here ", style="bold white on dark_green")))
+    # TODO: measure Kata on a KVM host with this same bundle and put the
+    # result in kata_reference.json as startup.value_ms. Until then there is
+    # no Kata startup bar.
     pause(args)

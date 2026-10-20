@@ -15,6 +15,16 @@ sudo ./demo.py --svg out/   # also save each final screen as SVG for slides
 sudo ./demo.py cr --cr-cold # restore from disk instead of the page cache
 ```
 
+A **Behind the scenes** panel shows every runsc command as it runs (with its
+duration, and a one-line explanation the first time each command appears),
+the commands in flight, and background steps such as the density sampler,
+start probes, the memory baseline and teardown. It sits beside the scene on
+terminals of 170+ columns and below it otherwise; `--activity side|bottom|off`
+overrides that. Beside the scene it takes the columns beyond 120 (60 to 100
+wide); `--activity-width N` sets it exactly. Command durations there are whole-command times (a `run`
+includes the sandbox exiting), so they are longer than the startup latency
+figures in the scenes.
+
 Needs: root, `runsc` on PATH (or `--runsc`), a static `busybox`, and Python 3
 with `rich`. Use a terminal of at least 110×45. The demo cleans up all
 sandboxes on exit and on Ctrl-C. Raw numbers go to
@@ -25,9 +35,10 @@ sandboxes on exit and on Ctrl-C. Raw numbers go to
 ```
 demo.py                 entry point: options, scene loop, SVG export
 kata_reference.json     Kata figures and their sources
-gvdemo/runsc.py         runsc CLI wrapper, busybox OCI bundles, time-to-first-output
+gvdemo/runsc.py         runsc CLI wrapper, busybox OCI bundles, startup latency
 gvdemo/hostmon.py       host measurements: per-sandbox sampler, meminfo, settling
 gvdemo/ui.py            rich helpers: bars, sparklines, formatting, out()/FRAME
+gvdemo/activity.py      the "Behind the scenes" panel: commands and background steps
 gvdemo/scenes/          one module per scene: anywhere, startup, checkpoint,
                         density, summary
 ```
@@ -37,8 +48,8 @@ gvdemo/scenes/          one module per scene: anywhere, startup, checkpoint,
 | Scene | What happens | Say |
 |---|---|---|
 | 1 Runs anywhere | Checks `/dev/kvm` and vmx/svm, then boots a sandbox that prints gVisor's kernel version and `dmesg`. | "This is a normal cloud VM. A microVM can't start here, and gVisor runs as-is." |
-| 2 Startup | 10 sandboxes one after another, then 50 at once. Time = `runsc run` until the app's first line. | "About 75 ms to a running app. Kata's published extra startup time alone is about 8× that." |
-| 3 Checkpoint/restore | The app loads 128 MiB and initialises for 3 s, then serves. The demo checkpoints it, restores it, then starts 5 clones from one image. The counter keeps going from where it stopped. | "Pay warm-up once. Every later copy starts warm in about 110 ms (about 400 ms from disk). Kata has no checkpoint command." |
+| 2 Startup latency | 50 sandboxes one after another, then 200 at once. Measured from `runsc run` until the sandbox is ready: the app inside is running and has printed its first line. | "About 75 ms until a new sandbox is ready, and 200 at once in about 1.3 s." |
+| 3 Checkpoint/restore | The app loads 128 MiB and initialises for 3 s, then serves. The demo checkpoints it, restores it, then starts 10 clones from one image. The counter keeps going from where it stopped. | "Pay warm-up once. Every later copy starts warm in about 110 ms (about 400 ms from disk). Kata has no checkpoint command." |
 | 4 Density | Starts 200 idle sandboxes in batches while a sampler measures each one. | "About 15 MiB of private memory per sandbox, against about 138 MB for a Kata VM measured the same way. Idle sandboxes use no CPU at all." |
 | ★ Scorecard | Summary table, with sample sizes and sources. | |
 
@@ -46,19 +57,21 @@ Results from this host (GCE, 32 vCPU, runsc release-20260727, systrap):
 
 | Result | Value |
 |---|---|
-| startup | 76 ms median (n=10, 68–88 ms); 50 at once all ready in 327 ms |
+| startup latency (until sandbox ready) | 77 ms median (n=50, 66–89 ms); 200 at once all ready in 1.29 s (p50 837 ms) |
 | checkpoint, 128 MiB app | 54 ms (to page cache) |
 | restore | 109 ms from page cache; 410 ms from disk (`--cr-cold`) |
-| 5 clones at once | 138 ms median (n=5, 130–149 ms) |
+| 10 clones at once | 169 ms median (n=10, 152–175 ms); all serving in 208 ms |
 | private memory per idle sandbox | 15.1 MiB median (n=200, 14.3–16.5) |
 | host RAM per idle sandbox | 17.8 MiB (= PSS 15.6 + kernel 2.3) |
-| idle CPU | 0% (0 context switches in a 10 s check) |
+| idle CPU per sandbox | 0 millicores now; 0.03 millicores averaged over the idle window (0 context switches in a 10 s check) |
 
 ## Caveats for honest use
 
-- **Kata was not measured.** This host has no nested virtualization. The Kata
-  startup bar is *live gVisor median + 0.6 s*, which is the published Kata-QEMU
-  vs gVisor gap from Li et al., CLOSER 2021 (Kata 1.11, gVisor 2020). See TODO.
+- **Kata was not measured.** This host has no nested virtualization. The
+  startup scene shows no Kata bar until a measured value exists (see TODO).
+  The only published comparison found, Li et al., CLOSER 2021, gives gaps
+  (Kata-QEMU 0.6 s slower than gVisor on the same host, Kata 1.11) but no
+  absolute times in its text, so it can't serve as a fixed reference.
 - **Memory is compared in the Kata source's metric.** The paper counts private
   dirty pages, so the comparison bar uses gVisor's `Private_Dirty`. The paper
   writes "MB"; the demo shows its value as published. The density projection
@@ -85,9 +98,9 @@ Results from this host (GCE, 32 vCPU, runsc release-20260727, systrap):
 
 - **Measure Kata startup.** Run Kata (QEMU and Cloud Hypervisor) on a KVM
   host with the same busybox bundle, and put the result in
-  `kata_reference.json` as `startup.value_ms` (it replaces `delta_ms`). Until
-  then the Kata startup bar and the "8×" banner in scene 2 rest on the 2021
-  gap. Kata memory should be re-measured the same way.
+  `kata_reference.json` as `startup.value_ms` with its `source`. The startup
+  scene and scorecard then show it as a fixed reference bar. Kata memory
+  should be re-measured the same way.
 
 ## Density metrics
 
@@ -95,23 +108,30 @@ A background sampler measures every sandbox on its own, every
 `--sample-interval` seconds (default 0.5 s), from the first start until
 `--idle-window` seconds (default 5 s) after the last one. The screen shows:
 
-- **Over time**: sparklines of sandbox count, host RAM, host CPU, and the
-  probed start time. They cover the whole scene; long runs are squeezed by
-  taking each bucket's maximum.
+- **Sandboxes up and running**: a progress bar of running sandboxes against
+  the target, with the ramp rate and host processes/threads.
+- **History**: one panel per metric (host RAM, host CPU, private memory per
+  sandbox, startup latency), each on its own scale, all on the same time
+  axis in seconds. ┬ marks each batch start and ┊ the moment all sandboxes
+  are idle. Samples are placed by time, so uneven sampling does not distort
+  the shape; probe latency draws as steps. Host CPU is whole-host busy time
+  from `/proc/stat`, so it includes the `runsc` commands that start
+  sandboxes (per-sandbox CPU, in the tile and table, cannot see those).
 - **Each sandbox measured separately**: min / p50 / p95 / max of private
-  dirty memory, PSS, CPU and processes/threads, with the heaviest sandbox named.
+  dirty memory, PSS, CPU and threads, with the heaviest sandbox named. Probe
+  sandboxes are excluded from all sampled figures.
 
 | Metric | How it is measured |
 |---|---|
-| sandbox membership | the sentry and gofer command lines contain `--root=<state dir>` and end with the container ID; systrap stubs are their children |
+| sandbox membership | the sentry and gofer command lines contain `--root=<state dir>` and end with the container ID; systrap stubs are their children. Newly seen processes are re-checked for 2 s, since one caught mid-exec shows a transient command line |
 | private memory | `Private_Dirty` from `smaps_rollup` of each sandbox's processes: memory no other process shares, and the Kata source's metric |
 | PSS | `Pss` from `smaps_rollup`: private memory plus a fair share of shared pages |
 | host RAM | drop in `MemAvailable` **plus per-CPU free pages** (`count` in `/proc/zoneinfo`) since the baseline, ÷ sandboxes. `MemAvailable` alone leaves out per-CPU free lists: after a burst of starts they held ~750 MiB on this 32-CPU host and then shrank over tens of seconds, so `MemAvailable` drifted by up to 500 MiB with no real change. The sum stays flat (±35 MiB over 30 s with 200 idle sandboxes). The baseline is taken once the sum is steady (≤ 6 MiB change in 2 s; usually 2 s) |
 | kernel memory per sandbox | change in `PageTables + Slab + KernelStack` in `/proc/meminfo`. Includes about 13 KiB per sandbox of slab from the sampler's own `/proc` scans |
-| CPU | change in `/proc/<pid>/task/*/schedstat` (exact ns) between samples. Idle sandboxes read 0%: in a 10 s check they made 0 context switches. The scorecard shows the mean over the idle window |
+| CPU | change in `/proc/<pid>/task/*/schedstat` (exact ns) between samples, shown in absolute units: millicores (1/1000 core) per sandbox, cores for the host (out of its vCPUs). Idle sandboxes read 0: in a 10 s check they made 0 context switches. The scorecard shows the mean over the idle window |
 | procs / threads | sandbox processes, and the sum of their thread counts |
-| start on busy host | median of `--probes` one-at-a-time starts after each batch, timed to first output |
-| ramp rate | sandboxes ÷ time spent in the ramp, with `--parallel` starts at once |
+| startup latency, busy host | median of `--probes` one-at-a-time starts after each batch, measured as in scene 2 |
+| ramp rate | sandboxes ÷ time spent in the ramp; each batch of `--step` sandboxes starts at once (`--parallel` overrides) |
 
 Sampler cost: one scan takes about 0.16 s at 200 sandboxes and about 0.8 s
 at 1000. When a scan takes longer than the interval, the next one starts at
@@ -136,4 +156,5 @@ with 1000 running.
 
 Sizes can be changed with flags: `--runs`, `--burst`, `--cr-mb`, `--cr-warm`,
 `--cr-cold`, `--clones`, `--density`, `--step`, `--parallel`, `--probes`,
-`--sample-interval`, `--idle-window`, `--platform`.
+`--sample-interval`, `--idle-window`, `--platform`, `--activity`,
+`--activity-width`.

@@ -6,6 +6,8 @@ import threading
 import time
 from pathlib import Path
 
+from .activity import activity
+
 
 def meminfo_kib():
     out = {}
@@ -31,6 +33,14 @@ def available_kib():
     with open("/proc/zoneinfo", "rb") as f:
         pcp = sum(int(c) for c in _PCP_COUNT.findall(f.read()))
     return meminfo_kib()["MemAvailable"] + pcp * os.sysconf("SC_PAGE_SIZE") // 1024
+
+
+def cpu_jiffies():
+    """(busy, total) CPU time of the whole host, from /proc/stat."""
+    with open("/proc/stat") as f:
+        v = [int(x) for x in f.readline().split()[1:]]
+    idle = v[3] + v[4]  # idle + iowait
+    return sum(v) - idle, sum(v)
 
 
 def kernel_kib(mi):
@@ -72,31 +82,39 @@ def read_proc(path):
         os.close(fd)
 
 
+YOUNG_S = 2.0  # how long a newly seen process is re-checked
+
+
 def sandbox_procs(root, cache):
     """Map each sandbox's container ID to its host processes.
 
     The sentry and gofer name the root dir on their command line and end it
     with the container ID. Their descendants (systrap stubs) belong to the
-    same sandbox. cache maps pid -> (ppid, cid or None) across calls, so only
-    new processes are read.
+    same sandbox. cache maps pid -> (ppid, cid or None, first seen) across
+    calls, so only new processes are read (and re-read while young).
     """
     marker = f"--root={root}".encode()
+    now = time.monotonic()
     live = {int(d) for d in os.listdir("/proc") if d.isdigit()}
     for pid in list(cache):
         if pid not in live:
             del cache[pid]
-    for pid in live - cache.keys():
+    # Re-read young entries: a process caught mid-exec can show an old or
+    # empty command line, and a fresh daemon gets reparented.
+    stale = {pid for pid, e in cache.items() if now - e[2] < YOUNG_S}
+    for pid in (live - cache.keys()) | stale:
         try:
             ppid = int(read_proc(f"/proc/{pid}/stat").rsplit(b")", 1)[1].split()[1])
             argv = read_proc(f"/proc/{pid}/cmdline").rstrip(b"\0").split(b"\0")
-            cache[pid] = (ppid, argv[-1].decode() if marker in argv else None)
         except (OSError, IndexError, ValueError):
             continue
+        born = cache[pid][2] if pid in cache else now
+        cache[pid] = (ppid, argv[-1].decode() if marker in argv else None, born)
     children = {}
-    for pid, (ppid, _) in cache.items():
+    for pid, (ppid, _, _) in cache.items():
         children.setdefault(ppid, []).append(pid)
     procs = {}
-    for pid, (_, cid) in cache.items():
+    for pid, (_, cid, _) in cache.items():
         if cid is None:
             continue
         stack = [pid]
@@ -143,9 +161,10 @@ class Sampler(threading.Thread):
     straight away; `interval_s` holds the real spacing.
     """
 
-    def __init__(self, root, interval, history=600):
+    def __init__(self, root, interval, history=600, include=None):
         super().__init__(daemon=True)
         self.root, self.interval, self.history = root, interval, history
+        self.include = include or (lambda cid: True)  # which sandboxes count
         self.base = meminfo_kib()
         self.base_avail = available_kib()
         self.t0 = time.monotonic()
@@ -155,6 +174,7 @@ class Sampler(threading.Thread):
         self.lock = threading.Lock()
         self.stop_ev = threading.Event()
         self._prev_cpu, self._prev_t = {}, None
+        self._prev_host = cpu_jiffies()
         self._pids = {}
 
     def run(self):
@@ -165,13 +185,17 @@ class Sampler(threading.Thread):
 
     def stop(self):
         self.stop_ev.set()
-        self.join()
+        if self.is_alive():
+            self.join()
+        activity.set_status("sampler", None)
 
     def sample(self):
         start = time.monotonic()
         boxes = {}
         cpu_now = {}
         for cid, pids in sandbox_procs(self.root, self._pids).items():
+            if not self.include(cid):
+                continue
             pss = dirty = threads = cpu = n = 0
             for p in pids:
                 s = proc_sample(p)
@@ -194,6 +218,9 @@ class Sampler(threading.Thread):
                 if dt and prev is not None else None
             total_cores += b["cpu_cores"] or 0
         mi = meminfo_kib()
+        busy, total = cpu_jiffies()
+        host_cpu = (busy - self._prev_host[0]) / max(1, total - self._prev_host[1])
+        self._prev_host = (busy, total)
         point = {
             "t": t - self.t0, "n": len(boxes),
             "host_mib": (self.base_avail - available_kib()) / 1024,
@@ -201,6 +228,9 @@ class Sampler(threading.Thread):
             "dirty_mib": sum(b["dirty_kib"] for b in boxes.values()) / 1024,
             "kernel_mib": (kernel_kib(mi) - kernel_kib(self.base)) / 1024,
             "cpu_cores": total_cores if dt else None,
+            # Whole-host busy fraction, including the runsc commands that
+            # start sandboxes (which no per-sandbox counter sees).
+            "host_cpu": host_cpu,
             "procs": sum(b["procs"] for b in boxes.values()),
             "threads": sum(b["threads"] for b in boxes.values()),
         }
@@ -211,6 +241,10 @@ class Sampler(threading.Thread):
             self.interval_s = dt or 0.0
             self.scan_s = t - start
         self._prev_cpu, self._prev_t = cpu_now, t
+        activity.set_status(
+            "sampler", f"sampler: {point['n']} sandboxes · {point['procs']} "
+                       f"host processes · {point['threads']} threads · "
+                       f"scan {self.scan_s * 1000:.0f} ms")
 
     def snapshot(self):
         with self.lock:

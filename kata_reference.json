@@ -1,8 +1,6 @@
 {
   "startup": {
-    "delta_ms": 600,
-    "label": "live gVisor + 0.6 s published gap",
-    "source": "Li et al., CLOSER 2021, §3.1.1/Fig. 3: Kata-FC 0.50 s slower than gVisor, Kata-QEMU a further 0.10 s (Kata 1.11, same host). https://www.scitepress.org/Papers/2021/104405/104405.pdf"
+    "note": "Not measured yet. Measure Kata on a KVM host with the demo's busybox bundle and set value_ms (and source). Until then the demo shows no Kata startup bar."
   },
   "density": {
     "value_mib": 137.6,

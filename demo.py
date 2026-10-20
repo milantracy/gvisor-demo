@@ -23,7 +23,8 @@ from rich.console import Console  # noqa: E402
 
 from gvdemo.runsc import Runsc  # noqa: E402
 from gvdemo.scenes import SCENES  # noqa: E402
-from gvdemo.ui import FRAME, console  # noqa: E402
+from gvdemo.activity import activity  # noqa: E402
+from gvdemo.ui import ACTIVITY, FRAME, console  # noqa: E402
 
 
 def main():
@@ -36,22 +37,31 @@ def main():
     ap.add_argument("--platform", default=None, help="runsc --platform")
     ap.add_argument("--workdir", default="/tmp/gvisor-demo/work")
     ap.add_argument("--reference", default=str(HERE / "kata_reference.json"))
-    ap.add_argument("--runs", type=int, default=10, help="sequential startups")
-    ap.add_argument("--burst", type=int, default=50, help="concurrent startups")
+    ap.add_argument("--runs", type=int, default=50, help="sequential startups")
+    ap.add_argument("--burst", type=int, default=200, help="concurrent startups")
     ap.add_argument("--cr-mb", type=int, default=128, help="app working set")
     ap.add_argument("--cr-warm", type=float, default=3, help="app init seconds")
     ap.add_argument("--cr-cold", action="store_true",
                     help="restore from disk: drop the host page cache first")
-    ap.add_argument("--clones", type=int, default=5)
+    ap.add_argument("--clones", type=int, default=10)
     ap.add_argument("--density", type=int, default=200, help="sandboxes")
     ap.add_argument("--step", type=int, default=20, help="sandboxes per batch")
-    ap.add_argument("--parallel", type=int, default=16)
+    ap.add_argument("--parallel", type=int, default=None,
+                    help="density starts at the same time (default: --step, "
+                         "so each batch starts at once)")
     ap.add_argument("--probes", type=int, default=3,
                     help="one-at-a-time start probes after each batch")
     ap.add_argument("--sample-interval", type=float, default=0.5,
                     help="seconds between density samples")
     ap.add_argument("--idle-window", type=float, default=5,
                     help="seconds to watch the sandboxes idle after the ramp")
+    ap.add_argument("--activity", choices=["auto", "side", "bottom", "off"],
+                    default="auto",
+                    help="behind-the-scenes panel: beside the scene when the "
+                         "terminal is 170+ columns (auto), side, bottom, off")
+    ap.add_argument("--activity-width", type=int, metavar="N",
+                    help="width of the side panel (default: what is left "
+                         "beyond 120 columns, 60 to 100)")
     ap.add_argument("--svg", metavar="DIR",
                     help="save each scene's final screen as DIR/<scene>.svg")
     ap.add_argument("--auto", type=float, default=0,
@@ -60,6 +70,10 @@ def main():
 
     if os.geteuid() != 0:
         sys.exit("runsc needs root: run with sudo")
+    if args.parallel is None:
+        args.parallel = args.step
+    ACTIVITY["mode"] = args.activity
+    ACTIVITY["width"] = args.activity_width
     scenes = args.scenes
     if not scenes or "all" in scenes:
         scenes = list(SCENES)
@@ -73,6 +87,7 @@ def main():
     try:
         for s in scenes:
             FRAME.clear()
+            activity.clear()
             SCENES[s](rs, ref, args, results)
             if args.svg:
                 rec = Console(record=True, width=console.width,

@@ -1,16 +1,18 @@
 """Scene 1: gVisor runs on hosts where a microVM cannot."""
 
-import subprocess
 import time
 
 from rich import box
+from rich.console import Group
+from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 from ..hostmon import host_facts
 from ..runsc import make_bundle
-from ..ui import GV, KATA, console, fmt_ms, out, pause, source_line, title
+from ..ui import (FRAME, GV, KATA, console, fmt_ms, out, pause, source_line,
+                  title, with_activity)
 
 
 def run(rs, ref, args, results):
@@ -27,7 +29,6 @@ def run(rs, ref, args, results):
     t.add_row("CPU virtualization (vmx/svm)",
               "[green]exposed[/]" if f["virt_flags"] else
               "[red]not exposed (no nested virtualization)[/]")
-    out(t)
 
     can_vm = f["kvm"] and f["virt_flags"]
     verdict = Table.grid(padding=(0, 2))
@@ -37,28 +38,40 @@ def run(rs, ref, args, results):
                     Text("✓ KVM available" if can_vm else
                          "✗ cannot start: a microVM needs /dev/kvm",
                          style="green" if can_vm else "bold red"))
-    with console.status("Starting a gVisor sandbox on this host…"):
+    state = {}
+
+    def body():
+        parts = [t, Panel(verdict, title="Can this host run sandboxes?",
+                          border_style="white")]
+        if "res" not in state:
+            parts.append(Text("Starting a gVisor sandbox on this host…",
+                              style="grey62"))
+        elif state["res"].returncode == 0:
+            parts.append(Panel(Text(state["res"].stdout.rstrip(), style="cyan"),
+                               title="Output from inside the sandbox "
+                                     "(gVisor's own kernel answers)",
+                               border_style="grey50"))
+        note = ref.get("hardware", {}).get("note")
+        if note:
+            parts += [Text(note, style="grey50"),
+                      source_line(ref.get("hardware", {}))]
+        return Group(*parts)
+
+    def render():
+        return with_activity(body())
+
+    with Live(console=console, refresh_per_second=8, get_renderable=render):
         b = make_bundle(rs.workdir, "anywhere",
                         "echo \"kernel: $(uname -sr)\"; dmesg | head -n 4")
         t0 = time.monotonic()
-        res = subprocess.run(rs.cmd("run", "--bundle", str(b), "anywhere"),
-                             stdin=subprocess.DEVNULL, capture_output=True,
-                             text=True)
+        res = rs.capture("run", "--bundle", str(b), "anywhere")
         dt = (time.monotonic() - t0) * 1000
-    ok = res.returncode == 0
-    verdict.add_row(Text("gVisor", style=GV),
-                    Text(f"✓ sandbox ran and exited in {fmt_ms(dt)}" if ok else
-                         f"✗ failed: {res.stderr.strip()[:80]}",
-                         style="bold green" if ok else "bold red"))
-    out(Panel(verdict, title="Can this host run sandboxes?",
-              border_style="white"))
-    if ok:
-        out(Panel(Text(res.stdout.rstrip(), style="cyan"),
-                  title="Output from inside the sandbox "
-                        "(gVisor's own kernel answers)",
-                  border_style="grey50"))
-    note = ref.get("hardware", {}).get("note")
-    if note:
-        out(Text(note, style="grey50"))
-        out(source_line(ref.get("hardware", {})))
+        ok = res.returncode == 0
+        verdict.add_row(Text("gVisor", style=GV),
+                        Text(f"✓ sandbox ran and exited in {fmt_ms(dt)}" if ok
+                             else f"✗ failed: {res.stderr.strip()[:80]}",
+                             style="bold green" if ok else "bold red"))
+        state["res"] = res
+        time.sleep(0.3)
+    FRAME.append(render())
     pause(args)

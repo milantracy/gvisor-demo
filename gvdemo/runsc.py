@@ -7,6 +7,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from .activity import activity
+
 
 class Runsc:
     def __init__(self, binary, workdir, extra_flags):
@@ -15,37 +17,63 @@ class Runsc:
         self.root = self.workdir / "state"
         self.flags = [f"--root={self.root}", "--network=none"] + extra_flags
         self.root.mkdir(parents=True, exist_ok=True)
+        activity.set_header(f"runsc {' '.join(self.flags)} <command>")
 
     def cmd(self, *args):
         return [self.binary, *self.flags, *args]
 
-    def call(self, *args, out=subprocess.DEVNULL, check=True):
-        r = subprocess.run(self.cmd(*args), stdin=subprocess.DEVNULL,
-                           stdout=out, stderr=out)
+    def _run(self, args, log=True, fail_note=None, **kw):
+        """subprocess.run of runsc, logged in the activity panel.
+
+        fail_note marks a failure as expected and names its reason.
+        """
+        if not log:
+            return subprocess.run(self.cmd(*args), stdin=subprocess.DEVNULL, **kw)
+        token = activity.begin(list(args))
+        rc = -1
+        try:
+            r = subprocess.run(self.cmd(*args), stdin=subprocess.DEVNULL, **kw)
+            rc = r.returncode
+            return r
+        finally:
+            activity.end(token, rc, fail_note)
+
+    def call(self, *args, out=subprocess.DEVNULL, check=True, log=True,
+             fail_note=None):
+        r = self._run(args, log=log, fail_note=fail_note, stdout=out, stderr=out)
         if check and r.returncode != 0:
             raise RuntimeError(f"runsc {' '.join(args)} failed ({r.returncode})")
         return r
 
-    def output(self, *args):
-        return subprocess.run(self.cmd(*args), stdin=subprocess.DEVNULL,
-                              capture_output=True, text=True).stdout
+    def output(self, *args, log=True):
+        return self._run(args, log=log, capture_output=True, text=True).stdout
+
+    def capture(self, *args):
+        return self._run(args, capture_output=True, text=True)
 
     def version(self):
         out = subprocess.run([self.binary, "--version"], capture_output=True,
                              text=True).stdout
         return out.splitlines()[0].replace("runsc version ", "") if out else "?"
 
-    def ids(self):
-        return self.output("list", "-quiet").split()
+    def ids(self, log=True):
+        return self.output("list", "-quiet", log=log).split()
 
-    def destroy(self, cid):
-        self.call("kill", cid, "KILL", check=False)
-        self.call("delete", "-force", cid, check=False)
+    def destroy(self, cid, log=True):
+        # kill fails harmlessly when the app has already exited.
+        self.call("kill", cid, "KILL", check=False, log=log,
+                  fail_note="already stopped")
+        self.call("delete", "-force", cid, check=False, log=log)
 
     def destroy_all(self):
-        ids = self.ids()
+        """Kill and delete every sandbox, logged as a single step."""
+        ids = self.ids(log=False)
+        if not ids:
+            return 0
+        token = activity.begin(["kill + delete", f"{len(ids)} sandboxes"])
         with ThreadPoolExecutor(32) as ex:
-            list(ex.map(self.destroy, ids))
+            list(ex.map(lambda c: self.destroy(c, log=False), ids))
+        activity.end(token, 0)
         return len(ids)
 
     def cleanup(self):
@@ -95,11 +123,13 @@ def time_to_ready(rs, bundle, cid):
 
     The bundle's app must print "ready" first; it then exits by itself.
     """
+    args = ["run", "--bundle", str(bundle), cid]
+    token = activity.begin(args)
     t0 = time.monotonic()
-    p = subprocess.Popen(rs.cmd("run", "--bundle", str(bundle), cid),
+    p = subprocess.Popen(rs.cmd(*args),
                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                          stderr=subprocess.DEVNULL)
     line = p.stdout.readline()
     dt = (time.monotonic() - t0) * 1000
-    p.wait()
+    activity.end(token, p.wait())
     return dt if line.strip() == b"ready" else None

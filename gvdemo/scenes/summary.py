@@ -8,7 +8,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..hostmon import host_facts
-from ..ui import GV, KATA, console, fmt_ms, fmt_spread, out, pct, title
+from ..ui import GV, KATA, console, fmt_cpu, fmt_ms, fmt_spread, out, title
 from .startup import kata_startup_ms
 
 
@@ -28,18 +28,22 @@ def run(rs, ref, args, results):
     s = results.get("startup")
     if s and s["seq_ms"]:
         med = statistics.median(s["seq_ms"])
-        k = kata_startup_ms(ref.get("startup", {}), med)
-        t.add_row("Startup to first output",
+        k = kata_startup_ms(ref.get("startup", {}))
+        t.add_row("Startup latency (until sandbox ready)",
                   f"{fmt_ms(med)} median ({fmt_spread(s['seq_ms'])})",
-                  fmt_ms(k) if k else "—")
+                  fmt_ms(k) if k else "not measured yet")
 
     c = results.get("cr")
     if c:
         short = ref.get("checkpoint", {}).get("short", "—")
+        t.add_row(f"Cold start of the scene 3 app ({c['working_set_mib']} MiB)",
+                  f"{fmt_ms(c['cold_ms'])} (n=1)", "—")
         t.add_row("Checkpoint a running app",
                   f"{fmt_ms(c['checkpoint_ms'])} (n=1, to page cache)", short)
         t.add_row("Start warm from snapshot",
-                  f"{fmt_ms(c['restore_ms'])} (n=1, {c['restore_from']})", short)
+                  f"{fmt_ms(c['restore_ms'])} (n=1, {c['restore_from']}; "
+                  f"{c['cold_ms'] / c['restore_ms']:.0f}× faster than cold)",
+                  short)
         t.add_row(f"{len(c['clone_ms'])} clones at once",
                   f"{fmt_ms(c['clone_median_ms'])} median "
                   f"({fmt_spread(c['clone_ms'])})", short)
@@ -55,13 +59,13 @@ def run(rs, ref, args, results):
         t.add_row("Host RAM per idle sandbox (incl. kernel)",
                   f"{d['host_mib'] / d['n']:.1f} MiB", "—")
         t.add_row("Idle CPU per sandbox",
-                  f"{pct(d['cpu_cores'] / d['n'])} of a core", "—")
+                  fmt_cpu(d["cpu_cores"] / d["n"]), "—")
     out(t)
     out(Text(f"runsc {rs.version()} · {h['machine']} · "
              f"{h['cpus']} vCPU · kernel {h['kernel']} · "
              "network=none · busybox workload", style="grey50"))
     for k in ("startup", "checkpoint", "density"):
-        if k in ref:
+        if "source" in ref.get(k, {}):
             out(Text(f"Kata {k}: {ref[k].get('source', '')}", style="grey50"))
     path = rs.workdir.parent / "gvisor-demo-results.json"
     path.write_text(json.dumps(results, indent=2))
