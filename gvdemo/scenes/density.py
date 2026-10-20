@@ -15,9 +15,9 @@ from rich.text import Text
 from ..activity import activity
 from ..hostmon import Sampler, host_facts, wait_settled
 from ..runsc import make_bundle, time_to_ready
-from ..ui import (FRAME, GV, KATA, area, bar, console, fmt_cpu, fmt_ms,
-                  main_width, meter, millicores, on_time, out, pause,
-                  percentile, source_line, tile, time_axis, title,
+from ..ui import (FRAME, GV, KATA, bar, console, fmt_cpu, fmt_ms,
+                  line_chart, main_width, meter, millicores, out, pause,
+                  percentile, source_line, tile, title,
                   with_activity)
 
 
@@ -155,26 +155,16 @@ def run(rs, ref, args, results):
         pw = (W - 1) // 2
 
         def chart(name, pts, fmt):
-            cw = max(10, pw - 4 - 11)
-            grid = Table.grid(padding=(0, 1))
-            grid.add_column(width=10, justify="right", style="grey50",
-                            no_wrap=True)
-            grid.add_column(width=cw)
+            ylab_w = 10
+            cw = max(10, pw - 4 - ylab_w - 1)
             now = pts[-1][1] if pts else None
             peak = max(v for _, v in pts) if pts else None
-            rows = area(on_time(pts, t_max, cw), cw, 4, GV)
-            for i, row in enumerate(rows):
-                grid.add_row(fmt(peak) if i == 0 and pts else
-                             "0" if i == len(rows) - 1 else "", row)
-            axis, labels = time_axis(cw, t_max, state["batches"],
-                                     state["idle_t"])
-            grid.add_row("", axis)
-            grid.add_row("", labels)
-            sub = Text.assemble(("now ", "grey50"),
-                                (fmt(now) if pts else "…", "bold white"),
-                                ("  peak ", "grey50"),
-                                (fmt(peak) if pts else "…", "white"))
-            return Panel(grid, border_style="grey30", title=name,
+            rows = line_chart(pts, t_max, cw, 4, GV, fmt, state["batches"],
+                              state["idle_t"], ylab_w=ylab_w)
+            head = Text.assemble((name, "white"), ("   ", ""),
+                                 (fmt(now) if pts else "…", "bold white"))
+            sub = Text(f"peak {fmt(peak)}" if pts else "", style="grey50")
+            return Panel(Group(*rows), border_style="grey30", title=head,
                          title_align="left", subtitle=sub,
                          subtitle_align="right", width=pw)
 

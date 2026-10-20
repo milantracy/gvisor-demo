@@ -12,7 +12,6 @@ from .activity import activity
 
 GV = "green3"     # gVisor colour
 KATA = "orange3"  # Kata colour
-SPARK_W = 60
 
 console = Console()
 FRAME = []  # what is on screen at the end of the current scene
@@ -68,71 +67,6 @@ def bar(value, vmax, width, color):
     return Text(s.ljust(width), style=color)
 
 
-def squeeze(values, width):
-    """Fit a series into exactly width columns.
-
-    Long series keep each bucket's max; short ones are stretched, so a chart
-    always spans its width from the first sample to the latest.
-    """
-    if len(values) <= width:
-        return [values[i * len(values) // width] for i in range(width)]
-    k = len(values) / width
-    return [max(values[int(i * k):max(int((i + 1) * k), int(i * k) + 1)])
-            for i in range(width)]
-
-
-def spark(values, color, width=SPARK_W, accent=None):
-    """A one-row sparkline from zero. accent colours the latest point."""
-    if not values:
-        return Text("")
-    values = squeeze(values, width)
-    vmax = max(values) or 1
-    t = Text()
-    for i, v in enumerate(values):
-        style = accent if accent and i == len(values) - 1 else color
-        if v <= 0:
-            t.append("▁", style="grey30")
-        else:
-            t.append("▁▂▃▄▅▆▇█"[min(7, int(v / vmax * 8))], style=style)
-    return t
-
-
-def area(values, width, height, color):
-    """A multi-row area chart from zero, as a list of Text rows (top first)."""
-    values = squeeze(values, width) if values else []
-    vmax = max(values) if values and max(values) > 0 else 1
-    rows = []
-    for r in range(height - 1, -1, -1):  # r = row index from the bottom
-        t = Text()
-        for v in values:
-            eighths = v / vmax * height * 8 - r * 8
-            if eighths >= 8:
-                t.append("█", style=color)
-            elif eighths >= 1:
-                t.append("▁▂▃▄▅▆▇"[int(eighths) - 1], style=color)
-            else:
-                t.append(" ")
-        rows.append(t)
-    return rows
-
-
-def on_time(points, t_max, width):
-    """Place (t, value) points into width columns by time, not by index.
-
-    A column holds the largest value that fell into it; empty columns repeat
-    the previous value, so sparse series (like probes) draw as steps.
-    """
-    cols = [None] * width
-    for t, v in points:
-        c = min(width - 1, int(t / t_max * (width - 1))) if t_max > 0 else 0
-        cols[c] = v if cols[c] is None else max(cols[c], v)
-    last = 0
-    for i, v in enumerate(cols):
-        last = v if v is not None else last
-        cols[i] = last
-    return cols
-
-
 def time_axis(width, t_max, marks, idle_t=None):
     """Axis rows under time charts: ┬ at each mark, ┊ at idle, seconds below."""
     line = ["─"] * width
@@ -147,19 +81,66 @@ def time_axis(width, t_max, marks, idle_t=None):
     return axis, labels
 
 
+# Braille cells hold 2 x 4 dots; these are the bits for (column, row-from-top).
+_DOT = ((0x01, 0x02, 0x04, 0x40), (0x08, 0x10, 0x20, 0x80))
+
+
+def line_chart(points, t_max, width, height, color, fmt, marks=(),
+               idle_t=None, ylab_w=9):
+    """A thin line chart in braille dots, from zero, as a list of Text rows.
+
+    points are (t, value). Each cell is 2 x 4 dots, so the line has 2*width
+    time steps and 4*height levels. Nothing is drawn before the first point.
+    Rows: the plot with a y axis (max at the top, 0 at the bottom), then the
+    time axis with marks, then its labels.
+    """
+    xs, ys = 2 * width, 4 * height
+    cols = [None] * xs
+    for t, v in points:
+        c = min(xs - 1, int(t / t_max * (xs - 1))) if t_max > 0 else 0
+        cols[c] = v if cols[c] is None else max(cols[c], v)
+    seen = None
+    for i, v in enumerate(cols):  # carry the last value forward
+        seen = v if v is not None else seen
+        cols[i] = seen
+    vmax = max([v for v in cols if v is not None] + [0]) or 1
+    cells = [[0] * width for _ in range(height)]
+    prev = None
+    for x, v in enumerate(cols):
+        if v is None:
+            continue
+        y = round(v / vmax * (ys - 1))
+        # Join to the previous point with a vertical run, so the line is
+        # continuous through jumps.
+        lo, hi = (y, y) if prev is None else (min(prev, y), max(prev, y))
+        for yy in range(lo, hi + 1):
+            cells[height - 1 - yy // 4][x // 2] |= _DOT[x % 2][3 - yy % 4]
+        prev = y
+    rows = []
+    for r in range(height):
+        label = fmt(vmax) if r == 0 else "0" if r == height - 1 else ""
+        t = Text(label.rjust(ylab_w), style="grey50")
+        t.append("┤" if r in (0, height - 1) else "│", style="grey42")
+        t.append("".join(chr(0x2800 + b) if b else " " for b in cells[r]),
+                 style=color)
+        rows.append(t)
+    axis, labels = time_axis(width, t_max, marks, idle_t)
+    rows.append(Text(" " * ylab_w + "└", style="grey42") + axis)
+    rows.append(Text(" " * (ylab_w + 1)) + labels)
+    return rows
+
+
 def meter(fraction, width, color, track="grey23"):
     """A progress track: filled part in color, the rest a dim track."""
     filled = round(max(0.0, min(1.0, fraction)) * width)
     return Text.assemble(("━" * filled, color), ("━" * (width - filled), track))
 
 
-def tile(label, value, sub="", trend=None):
+def tile(label, value, sub=""):
     """A stat tile: label, value in ink (not series colour), context line."""
     parts = [Text(label, style="grey62"), Text(value, style="bold white")]
     if sub:
         parts.append(Text(sub, style="grey50"))
-    if trend is not None:
-        parts.append(trend)
     for p in parts:
         p.no_wrap = True
         p.overflow = "ellipsis"
@@ -179,14 +160,6 @@ def fmt_cpu(cores):
     if cores >= 1:
         return f"{cores:.1f} cores"
     return f"{millicores(cores)} millicores"
-
-
-def pct(fraction):
-    """A fraction of one CPU as a percentage, with digits for tiny values."""
-    v = fraction * 100
-    if v == 0:
-        return "0%"
-    return f"{v:.1f}%" if v >= 1 else f"{v:.2f}%" if v >= 0.1 else f"{v:.3f}%"
 
 
 def fmt_ms(ms):

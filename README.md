@@ -111,8 +111,9 @@ A background sampler measures every sandbox on its own, every
 - **Sandboxes up and running**: a progress bar of running sandboxes against
   the target, with the ramp rate and host processes/threads.
 - **History**: one panel per metric (host RAM, host CPU, private memory per
-  sandbox, startup latency), each on its own scale, all on the same time
-  axis in seconds. ┬ marks each batch start and ┊ the moment all sandboxes
+  sandbox, startup latency), drawn as a thin line (braille dots, from zero),
+  each on its own scale, all on the same time axis in seconds. The title
+  shows the current value and the footer the peak. ┬ marks each batch start and ┊ the moment all sandboxes
   are idle. Samples are placed by time, so uneven sampling does not distort
   the shape; probe latency draws as steps. Host CPU is whole-host busy time
   from `/proc/stat`, so it includes the `runsc` commands that start
