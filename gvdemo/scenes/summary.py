@@ -8,7 +8,8 @@ from rich.table import Table
 from rich.text import Text
 
 from ..hostmon import host_facts
-from ..ui import GV, KATA, console, fmt_cpu, fmt_ms, fmt_spread, out, title
+from ..ui import (GV, KATA, console, fmt_cpu, fmt_ms, fmt_spread, out,
+                  percentile, title)
 from .startup import kata_startup_ms
 
 
@@ -30,7 +31,9 @@ def run(rs, ref, args, results):
         med = statistics.median(s["seq_ms"])
         k = kata_startup_ms(ref.get("startup", {}))
         t.add_row("Startup latency (until sandbox ready)",
-                  f"{fmt_ms(med)} median ({fmt_spread(s['seq_ms'])})",
+                  f"{fmt_ms(med)} median, p95 "
+                  f"{fmt_ms(percentile(s['seq_ms'], 95))} "
+                  f"({fmt_spread(s['seq_ms'])})",
                   fmt_ms(k) if k else "not measured yet")
 
     c = results.get("cr")

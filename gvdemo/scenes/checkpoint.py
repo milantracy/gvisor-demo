@@ -17,7 +17,7 @@ from ..activity import activity
 from ..hostmon import drop_caches
 from ..runsc import make_bundle
 from ..ui import (FRAME, GV, KATA, bar, console, fmt_ms, fmt_spread, out,
-                  pause, source_line, title, with_activity)
+                  source_line, title, with_activity)
 
 TICK_S = 0.2  # the app counts one "request" per tick
 
@@ -259,4 +259,3 @@ def run(rs, ref, args, results):
                      "clone_ms": clone_ms,
                      "clone_median_ms": statistics.median(clone_ms),
                      "clone_wall_ms": wall, "working_set_mib": args.cr_mb}
-    pause(args)

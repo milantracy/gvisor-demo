@@ -25,7 +25,7 @@ from rich.console import Console  # noqa: E402
 from gvdemo.runsc import Runsc  # noqa: E402
 from gvdemo.scenes import SCENES  # noqa: E402
 from gvdemo.activity import activity  # noqa: E402
-from gvdemo.ui import ACTIVITY, FRAME, console  # noqa: E402
+from gvdemo.ui import ACTIVITY, FRAME, ask_next, console  # noqa: E402
 
 
 def main():
@@ -38,14 +38,14 @@ def main():
     ap.add_argument("--platform", default=None, help="runsc --platform")
     ap.add_argument("--workdir", default="/tmp/gvisor-demo/work")
     ap.add_argument("--reference", default=str(HERE / "kata_reference.json"))
-    ap.add_argument("--runs", type=int, default=50, help="sequential startups")
+    ap.add_argument("--runs", type=int, default=200, help="sequential startups")
     ap.add_argument("--burst", type=int, default=200, help="concurrent startups")
     ap.add_argument("--cr-mb", type=int, default=128, help="app working set")
     ap.add_argument("--cr-warm", type=float, default=3, help="app init seconds")
     ap.add_argument("--cr-cold", action="store_true",
                     help="restore from disk: drop the host page cache first")
     ap.add_argument("--clones", type=int, default=10)
-    ap.add_argument("--density", type=int, default=200, help="sandboxes")
+    ap.add_argument("--density", type=int, default=300, help="sandboxes")
     ap.add_argument("--step", type=int, default=20, help="sandboxes per batch")
     ap.add_argument("--parallel", type=int, default=None,
                     help="density starts at the same time (default: --step, "
@@ -102,7 +102,9 @@ def main():
     rs.root.mkdir(parents=True, exist_ok=True)
     results = {}
     try:
-        for s in scenes:
+        i = 0
+        while i < len(scenes):
+            s = scenes[i]
             FRAME.clear()
             activity.clear()
             SCENES[s](rs, ref, args, results)
@@ -114,6 +116,17 @@ def main():
                 os.makedirs(args.svg, exist_ok=True)
                 rec.save_svg(os.path.join(args.svg, f"{s}.svg"),
                              title=f"gVisor demo · {s}")
+            choice = ask_next(args, last=i == len(scenes) - 1)
+            if choice == "quit":
+                break
+            if choice == "again":
+                # Clean state: no sandboxes, images, logs or bundles left
+                # from the previous attempt.
+                with console.status("Cleaning up for a fresh run…"):
+                    rs.cleanup()
+                    rs.root.mkdir(parents=True, exist_ok=True)
+                continue
+            i += 1
     except KeyboardInterrupt:
         pass
     finally:

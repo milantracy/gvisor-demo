@@ -16,12 +16,11 @@ from ..activity import activity
 from ..hostmon import Sampler, available_kib, host_facts, wait_settled
 from ..runsc import make_bundle, time_to_ready
 from ..ui import (FRAME, GV, KATA, bar, console, fmt_cpu, fmt_ms,
-                  line_chart, main_width, meter, millicores, out, pause,
-                  percentile, source_line, tile, title,
+                  line_chart, main_width, meter, millicores, out, percentile, source_line, tile, title,
                   with_activity)
 
 
-TIMELINE_ROWS = 6  # fixed height, so the screen does not jump
+TIMELINE_ROWS = 20  # the timeline grows up to this many lines, newest last
 PHASES = {"starting": "Starting sandboxes", "all idle": "All idle",
           "tearing down": "Tearing down", "done": "Finished"}
 
@@ -219,9 +218,8 @@ def run(rs, ref, args, results):
 
         # 5. Timeline: what happened, in words, on the charts' clock.
         shown = events[-TIMELINE_ROWS:]
-        tl = Text("\n".join(f"{t:6.1f} s  {m}" for t, m in shown) +
-                  "\n" * (TIMELINE_ROWS - len(shown)), style="white",
-                  no_wrap=True, overflow="ellipsis")
+        tl = Text("\n".join(f"{t:6.1f} s  {m}" for t, m in shown) or "…",
+                  style="white", no_wrap=True, overflow="ellipsis")
         timeline = Panel(tl, border_style="grey30", title="Timeline",
                          title_align="left")
 
@@ -347,4 +345,3 @@ def run(rs, ref, args, results):
                           "timeline": events,
                           "sample_interval_s": interval, "series": series,
                           "per_sandbox": boxes}
-    pause(args)

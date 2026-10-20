@@ -8,7 +8,7 @@ Kata Containers figures are published reference numbers from
 ## Run
 
 ```
-sudo ./demo.py              # all scenes; press Enter to advance
+sudo ./demo.py              # all scenes; Enter: next · r: replay scene · q: quit
 sudo ./demo.py startup cr   # chosen scenes only
 sudo ./demo.py --auto 4     # hands-free: advance every 4 s
 sudo ./demo.py --svg out/   # also save each final screen as SVG for slides
@@ -25,8 +25,13 @@ wide); `--activity-width N` sets it exactly. Command durations there are whole-c
 includes the sandbox exiting), so they are longer than the startup latency
 figures in the scenes.
 
+After each scene the demo asks what to do next: Enter goes on, `r` runs
+the same scene again from a clean state (all sandboxes, images, logs and
+bundles from the previous attempt are deleted first), and `q` quits.
+With `--auto` there is no prompt.
+
 Needs: root, `runsc` on PATH (or `--runsc`), a static `busybox`, and Python 3
-with `rich`. Use a terminal of at least 110×45. The demo cleans up all
+with `rich`. Use a terminal of at least 110×45; the density scene with its full timeline needs about 70 lines. The demo cleans up all
 sandboxes on exit and on Ctrl-C. Only one run can use a work directory at a
 time: a second run on the same `--workdir` refuses to start, because every run
 begins by deleting all sandboxes there. Raw numbers go to
@@ -50,20 +55,20 @@ gvdemo/scenes/          one module per scene: anywhere, startup, checkpoint,
 | Scene | What happens | Say |
 |---|---|---|
 | 1 Runs anywhere | Checks `/dev/kvm` and vmx/svm, then boots a sandbox that prints gVisor's kernel version and `dmesg`. | "This is a normal cloud VM. A microVM can't start here, and gVisor runs as-is." |
-| 2 Startup latency | 50 sandboxes one after another, then 200 at once. Measured from `runsc run` until the sandbox is ready: the app inside is running and has printed its first line. | "About 75 ms until a new sandbox is ready, and 200 at once in about 1.3 s." |
+| 2 Startup latency | 200 sandboxes one after another, then 200 at once, each shown as a square that turns green when ready. Measured from `runsc run` until the sandbox is ready: the app inside is running and has printed its first line. | "About 75 ms until a new sandbox is ready, and 200 at once in about 1.3 s." |
 | 3 Checkpoint/restore | The app loads 128 MiB and initialises for 3 s, then serves. The demo checkpoints it, restores it, then starts 10 clones from one image. The counter keeps going from where it stopped. | "Pay warm-up once. Every later copy starts warm in about 110 ms (about 400 ms from disk). Kata has no checkpoint command." |
-| 4 Density | Starts 200 idle sandboxes in batches while a sampler measures each one. | "About 15 MiB of private memory per sandbox, against about 138 MB for a Kata VM measured the same way. Idle sandboxes use no CPU at all." |
+| 4 Density | Starts 300 idle sandboxes in batches while a sampler measures each one. | "About 15 MiB of private memory per sandbox, against about 138 MB for a Kata VM measured the same way. Idle sandboxes use no CPU at all." |
 | ★ Scorecard | Summary table, with sample sizes and sources. | |
 
 Results from this host (GCE, 32 vCPU, runsc release-20260727, systrap):
 
 | Result | Value |
 |---|---|
-| startup latency (until sandbox ready) | 77 ms median (n=50, 66–89 ms); 200 at once all ready in 1.29 s (p50 837 ms) |
+| startup latency (until sandbox ready) | 78 ms median, p95 88 ms (n=200, 68–93 ms): 200 one after another in 16.2 s; 200 at once all ready in about 1.3 s (p50 about 0.9 s) |
 | checkpoint, 128 MiB app | 54 ms (to page cache) |
 | restore | 109 ms from page cache; 410 ms from disk (`--cr-cold`) |
 | 10 clones at once | 169 ms median (n=10, 152–175 ms); all serving in 208 ms |
-| private memory per idle sandbox | 15.1 MiB median (n=200, 14.3–16.5) |
+| private memory per idle sandbox | 15.2 MiB median (n=300); host RAM 17.9 MiB each; 300 sandboxes started in 15 batches in about 7 s |
 | host RAM per idle sandbox | 17.8 MiB (= PSS 15.6 + kernel 2.3) |
 | idle CPU per sandbox | 0 millicores now; 0.03 millicores averaged over the idle window (0 context switches in a 10 s check) |
 
@@ -124,8 +129,8 @@ A background sampler measures every sandbox on its own, every
   baseline, each batch (sandboxes started and how long it took, the running
   total, host RAM and its increase, the probed startup latency), the start of
   the idle phase, an idle summary (host and per-sandbox CPU, private memory
-  vs Kata) and teardown. It shows the newest 6 lines; the full list is in the
-  results file.
+  vs Kata) and teardown. It grows to at most 20 lines (300 sandboxes in
+  batches of 20 make 19 events); the full list is in the results file.
 - **Each sandbox measured separately**: min / p50 / p95 / max of private
   dirty memory, PSS, CPU and threads, with the heaviest sandbox named. Probe
   sandboxes are excluded from all sampled figures.

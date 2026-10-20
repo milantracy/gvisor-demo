@@ -11,7 +11,7 @@ from rich.text import Text
 
 from ..hostmon import host_facts
 from ..runsc import make_bundle
-from ..ui import (FRAME, GV, KATA, console, fmt_ms, out, pause, source_line,
+from ..ui import (FRAME, GV, KATA, console, fmt_ms, out, source_line,
                   title, with_activity)
 
 
@@ -74,4 +74,3 @@ def run(rs, ref, args, results):
         state["res"] = res
         time.sleep(0.3)
     FRAME.append(render())
-    pause(args)
