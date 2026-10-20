@@ -1,0 +1,21 @@
+{
+  "startup": {
+    "delta_ms": 600,
+    "label": "live gVisor + 0.6 s published gap",
+    "source": "Li et al., CLOSER 2021, §3.1.1/Fig. 3: Kata-FC 0.50 s slower than gVisor, Kata-QEMU a further 0.10 s (Kata 1.11, same host). https://www.scitepress.org/Papers/2021/104405/104405.pdf"
+  },
+  "density": {
+    "value_mib": 137.6,
+    "source": "Li et al., CLOSER 2021, Fig. 4: Kata-QEMU 137.6 MB per container, avg of 100, private dirty pages (gVisor 10.3 MB in the same study). https://www.scitepress.org/Papers/2021/104405/104405.pdf",
+    "unit": "MB"
+  },
+  "checkpoint": {
+    "status": "not supported: \"The runtime does not provide checkpoint and restore commands.\"",
+    "short": "✗ not supported",
+    "source": "kata-containers docs/Limitations.md (main, 2026-10). https://github.com/kata-containers/kata-containers/blob/main/docs/Limitations.md"
+  },
+  "hardware": {
+    "note": "Kata needs KVM. GCP: nested virtualization is off by default and unavailable on E2, Arm and most AMD VMs. AWS: non-metal support only since 2026-02, on some instance types. Azure: blocked by Trusted Launch, the default.",
+    "source": "cloud.google.com/compute/docs/instances/nested-virtualization/overview · aws.amazon.com/about-aws/whats-new/2026/02/amazon-ec2-nested-virtualization-on-virtual/ · learn.microsoft.com/azure/virtual-machines/sizes/general-purpose/dv5-series"
+  }
+}
