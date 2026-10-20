@@ -205,8 +205,10 @@ class Sampler(threading.Thread):
                     threads += s[2]
                     cpu += s[3]
                     n += 1
+            # cpu_ms: CPU used since the sandbox started, by threads still
+            # alive (it includes boot work the per-sample rate never sees).
             boxes[cid] = {"pss_kib": pss, "dirty_kib": dirty,
-                          "threads": threads, "procs": n}
+                          "threads": threads, "procs": n, "cpu_ms": cpu / 1e6}
             cpu_now[cid] = cpu
         t = time.monotonic()
         dt = t - self._prev_t if self._prev_t else None

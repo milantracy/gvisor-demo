@@ -27,7 +27,9 @@ figures in the scenes.
 
 Needs: root, `runsc` on PATH (or `--runsc`), a static `busybox`, and Python 3
 with `rich`. Use a terminal of at least 110×45. The demo cleans up all
-sandboxes on exit and on Ctrl-C. Raw numbers go to
+sandboxes on exit and on Ctrl-C. Only one run can use a work directory at a
+time: a second run on the same `--workdir` refuses to start, because every run
+begins by deleting all sandboxes there. Raw numbers go to
 `/tmp/gvisor-demo/gvisor-demo-results.json`.
 
 ## Layout
@@ -118,6 +120,12 @@ A background sampler measures every sandbox on its own, every
   the shape; probe latency draws as steps. Host CPU is whole-host busy time
   from `/proc/stat`, so it includes the `runsc` commands that start
   sandboxes (per-sandbox CPU, in the tile and table, cannot see those).
+- **Timeline**: what happened, in words, stamped on the charts' clock: the
+  baseline, each batch (sandboxes started and how long it took, the running
+  total, host RAM and its increase, the probed startup latency), the start of
+  the idle phase, an idle summary (host and per-sandbox CPU, private memory
+  vs Kata) and teardown. It shows the newest 6 lines; the full list is in the
+  results file.
 - **Each sandbox measured separately**: min / p50 / p95 / max of private
   dirty memory, PSS, CPU and threads, with the heaviest sandbox named. Probe
   sandboxes are excluded from all sampled figures.
@@ -130,6 +138,7 @@ A background sampler measures every sandbox on its own, every
 | host RAM | drop in `MemAvailable` **plus per-CPU free pages** (`count` in `/proc/zoneinfo`) since the baseline, ÷ sandboxes. `MemAvailable` alone leaves out per-CPU free lists: after a burst of starts they held ~750 MiB on this 32-CPU host and then shrank over tens of seconds, so `MemAvailable` drifted by up to 500 MiB with no real change. The sum stays flat (±35 MiB over 30 s with 200 idle sandboxes). The baseline is taken once the sum is steady (≤ 6 MiB change in 2 s; usually 2 s) |
 | kernel memory per sandbox | change in `PageTables + Slab + KernelStack` in `/proc/meminfo`. Includes about 13 KiB per sandbox of slab from the sampler's own `/proc` scans |
 | CPU | change in `/proc/<pid>/task/*/schedstat` (exact ns) between samples, shown in absolute units: millicores (1/1000 core) per sandbox, cores for the host (out of its vCPUs). Idle sandboxes read 0: in a 10 s check they made 0 context switches. The scorecard shows the mean over the idle window |
+| CPU used since start | the same per-thread schedstat counters read as a running total (ms), so it includes each sandbox's boot work, which the per-sample rate cannot see. It leaves out the `runsc` command that starts the sandbox and kernel setup done before the sandbox's processes exist; the host CPU chart shows those. About 104 ms per sandbox here |
 | procs / threads | sandbox processes, and the sum of their thread counts |
 | startup latency, busy host | median of `--probes` one-at-a-time starts after each batch, measured as in scene 2 |
 | ramp rate | sandboxes ÷ time spent in the ramp; each batch of `--step` sandboxes starts at once (`--parallel` overrides) |

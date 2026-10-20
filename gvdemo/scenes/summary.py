@@ -60,6 +60,11 @@ def run(rs, ref, args, results):
                   f"{d['host_mib'] / d['n']:.1f} MiB", "—")
         t.add_row("Idle CPU per sandbox",
                   fmt_cpu(d["cpu_cores"] / d["n"]), "—")
+        if d.get("cpu_used_ms"):
+            u = d["cpu_used_ms"]
+            t.add_row("CPU used since start, per sandbox",
+                      f"{statistics.median(u):.0f} ms median "
+                      f"(n={len(u)}, {u[0]:.0f}–{u[-1]:.0f} ms)", "—")
     out(t)
     out(Text(f"runsc {rs.version()} · {h['machine']} · "
              f"{h['cpus']} vCPU · kernel {h['kernel']} · "

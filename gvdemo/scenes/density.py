@@ -13,7 +13,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..activity import activity
-from ..hostmon import Sampler, host_facts, wait_settled
+from ..hostmon import Sampler, available_kib, host_facts, wait_settled
 from ..runsc import make_bundle, time_to_ready
 from ..ui import (FRAME, GV, KATA, bar, console, fmt_cpu, fmt_ms,
                   line_chart, main_width, meter, millicores, out, pause,
@@ -21,6 +21,7 @@ from ..ui import (FRAME, GV, KATA, bar, console, fmt_cpu, fmt_ms,
                   with_activity)
 
 
+TIMELINE_ROWS = 6  # fixed height, so the screen does not jump
 PHASES = {"starting": "Starting sandboxes", "all idle": "All idle",
           "tearing down": "Tearing down", "done": "Finished"}
 
@@ -197,6 +198,11 @@ def run(rs, ref, args, results):
         if c:
             dist.add_row("CPU, mcores", *(millicores(v) for v in (
                 c[0], percentile(c, 50), percentile(c, 95), c[-1])))
+        used = sorted(v["cpu_ms"] for v in boxes.values())
+        if used:
+            dist.add_row("CPU used, ms", *(f"{v:.0f}" for v in (
+                used[0], percentile(used, 50), percentile(used, 95),
+                used[-1])))
         if boxes:
             th = sorted(v["threads"] for v in boxes.values())
             dist.add_row("threads", *(f"{v:.0f}" for v in (
@@ -211,7 +217,15 @@ def run(rs, ref, args, results):
         middle.add_column(ratio=1)
         middle.add_row(headline, each)
 
-        parts = [progress, kpi, middle, over_time]
+        # 5. Timeline: what happened, in words, on the charts' clock.
+        shown = events[-TIMELINE_ROWS:]
+        tl = Text("\n".join(f"{t:6.1f} s  {m}" for t, m in shown) +
+                  "\n" * (TIMELINE_ROWS - len(shown)), style="white",
+                  no_wrap=True, overflow="ellipsis")
+        timeline = Panel(tl, border_style="grey30", title="Timeline",
+                         title_align="left")
+
+        parts = [progress, kpi, middle, over_time, timeline]
         if not settled:
             parts.append(Text("Host memory was still moving when the baseline "
                               "was taken: host RAM figures are less exact.",
@@ -223,6 +237,15 @@ def run(rs, ref, args, results):
 
     def start(cid):
         rs.call("run", "--bundle", str(b), "-detach", cid)
+
+    events = []  # (seconds on the charts' clock, message)
+
+    def ev(msg):
+        events.append((time.monotonic() - sampler.t0, msg))
+
+    def host_mib():
+        """Host RAM used now, read directly (the sampler may lag a tick)."""
+        return (sampler.base_avail - available_kib()) / 1024
 
     def probe():
         """Start args.probes sandboxes one at a time, as in scene 2."""
@@ -242,6 +265,11 @@ def run(rs, ref, args, results):
                   get_renderable=render) as live:
             ids = iter(range(args.density))
             probe()
+            ev(f"baseline: host memory steady after {waited:.1f} s; startup "
+               f"latency on the empty host "
+               f"{fmt_ms(statistics.median(probes[-1][1]))}"
+               if probes else f"baseline after {waited:.1f} s")
+            ram = host_mib()
             live.update(render())
             with ThreadPoolExecutor(args.parallel) as ex:
                 while state["n"] < args.density:
@@ -257,24 +285,50 @@ def run(rs, ref, args, results):
                         time.sleep(0.1)
                     for f in futs:
                         f.result()
-                    state["launch_s"] += time.monotonic() - t0
+                    took = time.monotonic() - t0
+                    state["launch_s"] += took
                     state["n"] += len(batch)
                     probe()
+                    now = host_mib()
+                    ev(f"batch {len(state['batches'])}: +{len(batch)} sandboxes "
+                       f"in {fmt_ms(took * 1000)} → {state['n']} running · host "
+                       f"RAM {now:,.0f} MiB (+{now - ram:,.0f}) · startup "
+                       f"{fmt_ms(statistics.median(probes[-1][1]))}")
+                    ram = now
             state["phase"] = "all idle"
             state["idle_t"] = time.monotonic() - sampler.t0
             activity.note(f"all idle: watching for {args.idle_window:g} s")
+            ev(f"all {state['n']} started; idle from here, watching for "
+               f"{args.idle_window:g} s")
             idle_from = len(sampler.snapshot()[0])
             end = time.monotonic() + args.idle_window
             while time.monotonic() < end:
                 live.update(render())
                 time.sleep(0.1)
-            FRAME.append(render())
+            sr = sampler.snapshot()[0]
+            idle_pts = [x for x in sr[idle_from:] if x["cpu_cores"] is not None]
+            n_now = sr[-1]["n"] if sr else 0
+            dirty_now = sr[-1]["dirty_mib"] / n_now if n_now else 0
+            host_cpu = statistics.mean(x["host_cpu"] for x in idle_pts) * \
+                os.cpu_count() if idle_pts else 0
+            box_cpu = statistics.mean(x["cpu_cores"] for x in idle_pts) / \
+                max(1, n_now) if idle_pts else 0
+            msg = (f"idle: host CPU {fmt_cpu(host_cpu)}, each sandbox "
+                   f"{millicores(box_cpu)} millicores · {dirty_now:.1f} MiB "
+                   "private each")
+            if kata_mib and dirty_now:
+                msg += f", {kata_mib / dirty_now:.0f}× less than Kata"
+            ev(msg)
             # Stop sampling first, so the results describe the full host.
             sampler.stop()
             state["phase"] = "tearing down"
             activity.note(f"tearing down {state['n']} sandboxes")
+            t0 = time.monotonic()
             rs.destroy_all()
+            ev(f"tore down {state['n']} sandboxes in "
+               f"{fmt_ms((time.monotonic() - t0) * 1000)}")
             state["phase"] = "done"
+            FRAME.append(render())
     finally:
         sampler.stop()
 
@@ -282,12 +336,15 @@ def run(rs, ref, args, results):
     idle = [x["cpu_cores"] for x in series[idle_from:]
             if x["cpu_cores"] is not None] or [0.0]
     dirty = sorted(v["dirty_kib"] / 1024 for v in boxes.values())
+    used = sorted(v["cpu_ms"] for v in boxes.values())
     results["density"] = {**series[-1], "cpu_cores": statistics.mean(idle),
                           "dirty_p50_mib": percentile(dirty, 50),
                           "dirty_min_mib": dirty[0], "dirty_max_mib": dirty[-1],
+                          "cpu_used_ms": used,
                           "baseline_wait_s": waited,
                           "baseline_settled": settled,
                           "launch_s": state["launch_s"], "probes_ms": probes,
+                          "timeline": events,
                           "sample_interval_s": interval, "series": series,
                           "per_sandbox": boxes}
     pause(args)

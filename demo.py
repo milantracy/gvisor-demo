@@ -9,6 +9,7 @@ Usage: sudo ./demo.py [all|anywhere|startup|cr|density|summary] [options]
 """
 
 import argparse
+import fcntl
 import io
 import json
 import os
@@ -79,6 +80,22 @@ def main():
         scenes = list(SCENES)
     ref = json.loads(Path(args.reference).read_text()) \
         if Path(args.reference).exists() else {}
+    # Every run starts by deleting all sandboxes under its work dir, so two
+    # runs on one work dir would destroy each other's sandboxes. Refuse.
+    lock_path = Path(args.workdir).parent / f".{Path(args.workdir).name}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock = open(lock_path, "a+")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock.seek(0)
+        sys.exit(f"another demo run (pid {lock.read().strip() or '?'}) is "
+                 f"using {args.workdir}; stop it, or pass a different "
+                 "--workdir")
+    lock.seek(0)
+    lock.truncate()
+    lock.write(str(os.getpid()))
+    lock.flush()
     flags = [f"--platform={args.platform}"] if args.platform else []
     rs = Runsc(args.runsc, args.workdir, flags)
     rs.cleanup()
