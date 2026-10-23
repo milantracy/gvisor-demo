@@ -70,7 +70,7 @@ it joins the sandbox's cgroup. Not covered: the first moments of each
 `runsc` command, and the demo's own Python process (UI and sampler), which
 stays in the caller's cgroup. A limit larger than the host is reduced to
 what the host has.
-Measured with `--cpus 8`: start throughput peaks at 80/s (172/s on all 32
+Measured with `--cpus 8`: sandbox churn peaks at 80/s (172/s on all 32
 CPUs), and the group's CPU use tops out at 7.6 cores.
 
 ## Layout
@@ -82,7 +82,7 @@ gvdemo/runsc.py         runsc CLI wrapper, busybox OCI bundles, startup latency
 gvdemo/hostmon.py       host measurements: per-sandbox sampler, meminfo, settling
 gvdemo/ui.py            rich helpers: bars, sparklines, formatting, out()/FRAME
 gvdemo/activity.py      the "Behind the scenes" panel: commands and background steps
-gvdemo/scenes/          one module per scene: anywhere, startup, throughput,
+gvdemo/scenes/          one module per scene: anywhere, startup, churn,
                         checkpoint, density, summary
 ```
 
@@ -92,7 +92,7 @@ gvdemo/scenes/          one module per scene: anywhere, startup, throughput,
 |---|---|---|
 | 1 Runs anywhere | Checks `/dev/kvm` and vmx/svm, then boots a sandbox that prints gVisor's kernel version and `dmesg`. | "This is a normal cloud VM. A microVM can't start here, and gVisor runs as-is." |
 | 2 Startup latency | 200 sandboxes one after another, then 200 at once. Each sandbox is a box: grey = not started, amber = started, green = ready (its app printed its first line), red = failed; a legend says so. Under each set's boxes: the wall time for all of them and a latency histogram (own axis, p50 and p95 marked). The "at once" panel is on screen from the start, all grey, until its turn. Measured from `runsc run` until the sandbox is ready: the app inside is running and has printed its first line. | "About 75 ms until a new sandbox is ready, and 200 at once in about 1.3 s." |
-| ⇉ Start throughput | At 1, 5, 10, 20, 50 and 100 at once, workers start sandboxes back to back for 4 s each (each sandbox prints, is counted when ready, then exits). One bar per level: sandboxes per second, with p50/p95 latency and host CPU. | "This 16-CPU node starts about 135 sandboxes a second, over 8,000 a minute. It scales with CPU until the CPUs are busy, then each start just waits longer." |
+| ⇉ Sandbox churn (`churn`) | At 1, 5, 10, 20, 50 and 100 at once, workers create sandboxes back to back for 5 s each: each sandbox prints, exits and is destroyed, then the worker creates the next. A grid with one box per worker shows each worker's sandbox: amber while it starts, then a short green (ready) and magenta (terminating) blink as it finishes. Below it, one bar per level: sandboxes created and destroyed per second, with p50 ready and destroy times. | "A sandbox is created, ready and gone in about 80 ms; destroying it takes about 3 ms. This 16-CPU node cycles about 145 sandboxes a second, over 8,000 a minute." |
 | 3 Checkpoint/restore | The app loads 128 MiB and initialises for 3 s, then serves. The demo checkpoints it, restores it, then starts 10 clones from one image. The counter keeps going from where it stopped. | "Pay warm-up once. Every later copy starts warm in about 110 ms (about 400 ms from disk). Kata has no checkpoint command." |
 | 4 Density | Starts 300 idle sandboxes in batches while a sampler measures each one. | "About 15 MiB of private memory per sandbox, against about 138 MB for a Kata VM measured the same way. Idle sandboxes use no CPU at all." |
 | ★ Scorecard | Summary table, with sample sizes and sources. | |
@@ -107,7 +107,7 @@ Results from this host (GCE, 32 vCPU, runsc release-20260727, systrap):
 | 10 clones at once | 169 ms median (n=10, 152–175 ms); all serving in 208 ms |
 | private memory per idle sandbox | 15.2 MiB median (n=300); host RAM 17.9 MiB each; 300 sandboxes started in 15 batches in about 7 s |
 | host RAM per idle sandbox | 17.8 MiB (= PSS 15.6 + kernel 2.3) |
-| start throughput (peak) | about 136 sandboxes/s with 40 at once at the default 16-CPU limit; 172/s with 50 at once on all 32 CPUs (`--no-limit`, p50 250 ms); about 12/s per worker until the CPUs are busy |
+| sandbox churn (peak) | about 145 created and destroyed per second with 20 at once at the default 16-CPU limit (ready 124 ms, destroyed +9 ms); one at a time: ready 76 ms, destroyed +3 ms |
 | idle CPU per sandbox | 0 millicores now; 0.03 millicores averaged over the idle window (0 context switches in a 10 s check) |
 
 ## Caveats for honest use
@@ -209,6 +209,6 @@ with 1000 running.
 
 Sizes can be changed with flags: `--runs`, `--burst`, `--cr-mb`, `--cr-warm`,
 `--cr-cold`, `--clones`, `--density`, `--step`, `--parallel`, `--probes`,
-`--sample-interval`, `--idle-window`, `--tp-levels`, `--tp-seconds`,
+`--sample-interval`, `--idle-window`, `--churn-levels`, `--churn-seconds`,
 `--cpus`, `--memory`, `--kiosk`, `--kiosk-delay`, `--platform`, `--activity`,
 `--activity-width`.

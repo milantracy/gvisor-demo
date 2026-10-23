@@ -36,12 +36,13 @@ def run(rs, ref, args, results):
                   f"({fmt_spread(s['seq_ms'])})",
                   fmt_ms(k) if k else "not measured yet")
 
-    tp = results.get("throughput")
+    tp = results.get("churn")
     if tp and tp["levels"]:
         r = max(tp["levels"], key=lambda r: r["rate"])
-        t.add_row("Start throughput (peak)",
-                  f"{r['rate']:.0f} sandboxes/s with {r['level']} at once "
-                  f"(p50 {fmt_ms(r['p50'])})", "—")
+        t.add_row("Sandbox churn (peak)",
+                  f"{r['rate']:.0f} created and destroyed per second with "
+                  f"{r['level']} at once (ready {fmt_ms(r['start'])}, "
+                  f"destroyed +{fmt_ms(r['destroy'])}, p50)", "—")
 
     c = results.get("cr")
     if c:

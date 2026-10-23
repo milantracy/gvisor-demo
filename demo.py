@@ -5,7 +5,7 @@ Every gVisor number on screen is measured live on this host with runsc.
 Kata Containers numbers are published reference figures, loaded from
 kata_reference.json, and are always shown with their source.
 
-Usage: sudo ./demo.py [all|anywhere|startup|cr|density|summary] [options]
+Usage: sudo ./demo.py [all|anywhere|startup|churn|cr|density|summary] [options]
 """
 
 import argparse
@@ -54,10 +54,10 @@ def main():
     ap.add_argument("--reference", default=str(HERE / "kata_reference.json"))
     ap.add_argument("--runs", type=int, default=200, help="sequential startups")
     ap.add_argument("--burst", type=int, default=200, help="concurrent startups")
-    ap.add_argument("--tp-levels", default="1,5,10,20,50,100",
-                    help="throughput: sandboxes starting at once, per level")
-    ap.add_argument("--tp-seconds", type=float, default=4,
-                    help="throughput: seconds to run each level")
+    ap.add_argument("--churn-levels", default="1,5,10,20,50,100",
+                    help="sandbox churn: sandboxes starting at once, per level")
+    ap.add_argument("--churn-seconds", type=float, default=5,
+                    help="sandbox churn: seconds to run each level")
     ap.add_argument("--cr-mb", type=int, default=128, help="app working set")
     ap.add_argument("--cr-warm", type=float, default=3, help="app init seconds")
     ap.add_argument("--cr-cold", action="store_true",

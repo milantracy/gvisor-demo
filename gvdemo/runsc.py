@@ -148,10 +148,11 @@ def sandbox_bundle(base, cid, cgroup):
     return d
 
 
-def time_to_ready(rs, bundle, cid):
+def time_to_ready(rs, bundle, cid, on_ready=None):
     """Milliseconds from `runsc run` until the app prints its first line.
 
     The bundle's app must print "ready" first; it then exits by itself.
+    on_ready, if given, is called the moment that line arrives.
     """
     args = ["run", "--bundle", str(bundle), cid]
     token = activity.begin(args)
@@ -161,5 +162,7 @@ def time_to_ready(rs, bundle, cid):
                          stderr=subprocess.DEVNULL)
     line = p.stdout.readline()
     dt = (time.monotonic() - t0) * 1000
+    if on_ready:
+        on_ready()
     activity.end(token, p.wait())
     return dt if line.strip() == b"ready" else None
