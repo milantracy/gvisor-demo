@@ -11,6 +11,7 @@ from ..hostmon import host_facts
 from ..ui import (GV, KATA, console, fmt_cpu, fmt_ms, fmt_spread, out,
                   percentile, title)
 from .startup import kata_startup_ms
+from ..colors import MUTED
 
 
 def run(rs, ref, args, results):
@@ -83,10 +84,10 @@ def run(rs, ref, args, results):
     out(Text(f"runsc {rs.version()} · {h['machine']} · "
              f"{h['cpus']} vCPU · kernel {h['kernel']} · "
              + (f"sandboxes limited to {limits} · " if limits else "") +
-             "network=none · busybox workload", style="grey50"))
+             "network=none · busybox workload", style=MUTED))
     for k in ("startup", "checkpoint", "density"):
         if "source" in ref.get(k, {}):
-            out(Text(f"Kata {k}: {ref[k].get('source', '')}", style="grey50"))
+            out(Text(f"Kata {k}: {ref[k].get('source', '')}", style=MUTED))
     path = rs.workdir.parent / "gvisor-demo-results.json"
     path.write_text(json.dumps(results, indent=2))
-    out(Text(f"Raw results: {path}", style="grey50"))
+    out(Text(f"Raw results: {path}", style=MUTED))

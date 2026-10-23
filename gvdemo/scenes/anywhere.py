@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from ..colors import MUTED
 from ..hostmon import host_facts
 from ..runsc import make_bundle
 from ..ui import (FRAME, GV, KATA, console, fmt_ms, out, source_line,
@@ -50,7 +51,7 @@ def run(rs, ref, args, results):
                           border_style="white")]
         if "res" not in state:
             parts.append(Text("Starting a gVisor sandbox on this host…",
-                              style="grey62"))
+                              style=MUTED))
         elif state["res"].returncode == 0:
             parts.append(Panel(Text(state["res"].stdout.rstrip(), style="cyan"),
                                title="Output from inside the sandbox "
@@ -58,7 +59,7 @@ def run(rs, ref, args, results):
                                border_style="grey50"))
         note = ref.get("hardware", {}).get("note")
         if note:
-            parts += [Text(note, style="grey50"),
+            parts += [Text(note, style=MUTED),
                       source_line(ref.get("hardware", {}))]
         return Group(*parts)
 

@@ -11,6 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from ..colors import MUTED
 from ..activity import activity
 from ..hostmon import (LIMIT, Sampler, available_kib, cpu_capacity,
                        host_facts, wait_settled)
@@ -79,7 +80,7 @@ def run(rs, ref, args, results):
             f"ramp {rate}, {args.parallel} at once · {procs:,} host processes, "
             f"{threads:,} threads" + (f" ({procs / n:.0f} and {threads / n:.0f} "
                                       "per sandbox)" if n else ""),
-            style="grey50", no_wrap=True, overflow="ellipsis"), "")
+            style=MUTED, no_wrap=True, overflow="ellipsis"), "")
         progress = Panel(head, border_style="grey30", title_align="left",
                          title="Sandboxes up and running")
 
@@ -114,13 +115,13 @@ def run(rs, ref, args, results):
         vmax = max(kata_mib or 0, dirty, 1)
         cmp.add_row(Text("gVisor", style="bold white"), bar(dirty, vmax, bw, GV),
                     Text.assemble((f"{dirty:.1f} MiB", "bold white"),
-                                  ("  measured live", "grey50")))
+                                  ("  measured live", MUTED)))
         lines = [cmp]
         if kata_mib:
             cmp.add_row(Text("Kata", style="bold white"),
                         bar(kata_mib, vmax, bw, KATA),
                         Text.assemble((f"{kata_mib:g} {kref.get('unit', 'MiB')}",
-                                       "bold white"), ("  published", "grey50")))
+                                       "bold white"), ("  published", MUTED)))
             if dirty:
                 lines.insert(0, Text(f"{kata_mib / dirty:.0f}× less private "
                                      "memory per sandbox", style="bold white"))
@@ -131,7 +132,7 @@ def run(rs, ref, args, results):
                     (f"This {mem_gib:g} GiB {'node' if lim else 'host'} fits ≈ "
                      f"{int(mem_gib * 1024 * 0.9 / per_host):,} gVisor vs ≈ "
                      f"{int(mem_gib * 1024 * 0.9 / kata_mib):,} Kata", "white"),
-                    ("  (memory only)", "grey50")))
+                    ("  (memory only)", MUTED)))
             src = source_line(kref)
             src.no_wrap, src.overflow = True, "ellipsis"  # full in scorecard
             lines.append(src)
@@ -165,7 +166,7 @@ def run(rs, ref, args, results):
                               state["idle_t"], ylab_w=ylab_w)
             head = Text.assemble((name, "white"), ("   ", ""),
                                  (fmt(now) if pts else "…", "bold white"))
-            sub = Text(f"peak {fmt(peak)}" if pts else "", style="grey50")
+            sub = Text(f"peak {fmt(peak)}" if pts else "", style=MUTED)
             return Panel(Group(*rows), border_style="grey30", title=head,
                          title_align="left", subtitle=sub,
                          subtitle_align="right", width=pw)
@@ -177,12 +178,12 @@ def run(rs, ref, args, results):
         charts.add_row(panels[0], panels[1])
         charts.add_row(panels[2], panels[3])
         legend = Text(f"┬ batch start   ┊ all idle   sampled every "
-                      f"{interval:.2f} s", style="grey50")
+                      f"{interval:.2f} s", style=MUTED)
         over_time = Group(charts, legend)
 
-        dist = Table(box=box.SIMPLE_HEAD, header_style="grey62",
+        dist = Table(box=box.SIMPLE_HEAD, header_style=MUTED,
                      pad_edge=False, expand=True, show_edge=False)
-        dist.add_column("", style="grey62", no_wrap=True)
+        dist.add_column("", style=MUTED, no_wrap=True)
         for h in ("min", "p50", "p95", "max"):
             dist.add_column(h, justify="right", style="white", no_wrap=True)
         heaviest = ""
@@ -209,7 +210,7 @@ def run(rs, ref, args, results):
             dist.add_row("threads", *(f"{v:.0f}" for v in (
                 th[0], percentile(th, 50), percentile(th, 95), th[-1])))
         each = Panel(Group(dist, Text(heaviest + "   memory in MiB",
-                                      style="grey50")),
+                                      style=MUTED)),
                      border_style="grey30", title_align="left",
                      title=f"Each of {len(boxes)} sandboxes, measured alone")
 

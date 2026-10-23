@@ -23,7 +23,7 @@ duration, and a one-line explanation the first time each command appears),
 the commands in flight, and background steps such as the density sampler,
 start probes, the memory baseline and teardown. It sits beside the scene on
 terminals of 170+ columns and below it otherwise; `--activity side|bottom|off`
-overrides that. Beside the scene it takes the columns beyond 120 (60 to 100
+overrides that. Beside the scene it takes the columns beyond 130 (56 to 90
 wide); `--activity-width N` sets it exactly. Command durations there are whole-command times (a `run`
 includes the sandbox exiting), so they are longer than the startup latency
 figures in the scenes.

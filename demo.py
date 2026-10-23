@@ -87,7 +87,7 @@ def main():
                          "terminal is 170+ columns (auto), side, bottom, off")
     ap.add_argument("--activity-width", type=int, metavar="N",
                     help="width of the side panel (default: what is left "
-                         "beyond 120 columns, 60 to 100)")
+                         "beyond 130 columns, 56 to 90)")
     ap.add_argument("--svg", metavar="DIR",
                     help="save each scene's final screen as DIR/<scene>.svg")
     ap.add_argument("--auto", type=float, default=0,

@@ -11,6 +11,7 @@ from rich.text import Text
 
 from .activity import activity
 from .hostmon import LIMIT
+from .colors import MUTED
 
 GV = "green3"     # gVisor colour
 KATA = "orange3"  # Kata colour
@@ -30,8 +31,8 @@ def _layout():
     mode = ACTIVITY["mode"]
     if mode == "auto":
         mode = "side" if console.width >= 170 else "bottom"
-    # The scene keeps 120 columns; the panel takes the rest, 60 to 100.
-    side_w = ACTIVITY["width"] or max(60, min(100, console.width - 121))
+    # The scene keeps 130 columns; the panel takes the rest, 56 to 90.
+    side_w = ACTIVITY["width"] or max(56, min(90, console.width - 131))
     return mode, side_w
 
 
@@ -79,7 +80,7 @@ def time_axis(width, t_max, marks, idle_t=None):
         line[col(idle_t)] = "┊"
     axis = Text("".join(line), style="grey42")
     end = f"{t_max:.0f} s"
-    labels = Text("0 s" + end.rjust(width - 3), style="grey50")
+    labels = Text("0 s" + end.rjust(width - 3), style=MUTED)
     return axis, labels
 
 
@@ -123,20 +124,20 @@ def line_chart(points, t_max, width, height, color, fmt, marks=(),
         # Zero is drawn at the bottom edge of the last row, so "0" goes on
         # the axis line below it, not beside that row.
         label = fmt(vmax) if r == 0 else ""
-        t = Text(label.rjust(ylab_w), style="grey50")
+        t = Text(label.rjust(ylab_w), style=MUTED)
         t.append("┤" if r == 0 else "│", style="grey42")
         t.append("".join(chr(0x2800 + b) if b else " " for b in cells[r]),
                  style=color)
         rows.append(t)
     axis, labels = time_axis(width, t_max, marks, idle_t)
-    rows.append(Text("0".rjust(ylab_w), style="grey50") +
+    rows.append(Text("0".rjust(ylab_w), style=MUTED) +
                 Text("└", style="grey42") + axis)
     rows.append(Text(" " * (ylab_w + 1)) + labels)
     return rows
 
 
 def histogram(values, width, height, color, marks=(), bins=20,
-              fill="dark_green", ends_style="grey62", mark_style="white",
+              fill="dark_green", ends_style=MUTED, mark_style="white",
               mark_time_style="white"):
     """A histogram drawn as a smooth outline, as Text rows.
 
@@ -182,7 +183,7 @@ def histogram(values, width, height, color, marks=(), bins=20,
     rows = []
     for r in range(height):
         # Zero is at the bottom edge of the last row: "0" goes on the axis.
-        t = Text(f"{cmax if r == 0 else '':>4} ", style="grey50")
+        t = Text(f"{cmax if r == 0 else '':>4} ", style=MUTED)
         t.append("┤" if r == 0 else "│", style="grey42")
         for cl, cs in zip(line[r], shade[r]):
             bits = cl | cs
@@ -209,7 +210,7 @@ def histogram(values, width, height, color, marks=(), bins=20,
         labels.append(" ")
         labels.append(value, style=mark_time_style)
         at = c + len(name) + 1 + len(value)
-    rows.append(Text("   0 ", style="grey50") + Text("└", style="grey42") +
+    rows.append(Text("   0 ", style=MUTED) + Text("└", style="grey42") +
                 Text("".join(axis), style="grey42"))
     # The fastest and slowest values, labelled, at the two ends of the axis.
     lo_t, hi_t = fmt_ms(lo), fmt_ms(hi)
@@ -232,9 +233,9 @@ def meter(fraction, width, color, track="grey23"):
 
 def tile(label, value, sub=""):
     """A stat tile: label, value in ink (not series colour), context line."""
-    parts = [Text(label, style="grey62"), Text(value, style="bold white")]
+    parts = [Text(label, style=MUTED), Text(value, style="bold white")]
     if sub:
-        parts.append(Text(sub, style="grey50"))
+        parts.append(Text(sub, style=MUTED))
     for p in parts:
         p.no_wrap = True
         p.overflow = "ellipsis"
@@ -277,7 +278,7 @@ def percentile(xs, p):
 def title(n, text, sub):
     """A scene's heading, with the resource setup right under it."""
     head = Panel(Text.assemble((text, "bold white"), "\n",
-                               (sub, "italic grey70"), justify="center"),
+                               (sub, f"italic {MUTED}"), justify="center"),
                  title=f"[bold]{n}[/]", border_style="bright_blue",
                  box=box.HEAVY)
     return Group(head, limit_banner())
@@ -288,20 +289,19 @@ def limit_banner():
     if LIMIT["cgroup"]:
         parts = []
         if LIMIT["cpus"]:
-            parts.append(f"{LIMIT['cpus']} CPUs (0–{LIMIT['cpus'] - 1})")
+            parts.append(f"{LIMIT['cpus']} CPUs")
         if LIMIT["mem_bytes"]:
             parts.append(f"{LIMIT['mem_bytes'] / 2**30:g} GiB memory")
         return Text.assemble(
             ("⚙ cgroup limit ", "bold black on yellow"),
-            (f" all sandboxes share {' and '.join(parts)}, like a smaller "
-             f"node · /sys/fs/cgroup/{LIMIT['cgroup']}", "yellow"))
-    return Text.assemble(("⚙ no cgroup limit ", "bold black on grey62"),
+            (f" all sandboxes share {' and '.join(parts)}", "yellow"))
+    return Text.assemble(("⚙ no cgroup limit ", f"bold black on {MUTED}"),
                          (f" sandboxes may use the whole host "
-                          f"({os.cpu_count()} CPUs)", "grey62"))
+                          f"({os.cpu_count()} CPUs)", MUTED))
 
 
 def source_line(ref):
-    return Text(f"Kata source: {ref.get('source', 'n/a')}", style="grey50")
+    return Text(f"Kata source: {ref.get('source', 'n/a')}", style=MUTED)
 
 
 def ask_next(args, last=False, upcoming=None, note="", first=False):
@@ -316,14 +316,14 @@ def ask_next(args, last=False, upcoming=None, note="", first=False):
         with console.status("") as status:
             while (left := end - time.monotonic()) > 0:
                 status.update(
-                    f"[grey62]{note}Next: [bold white]{upcoming or 'finish'}"
+                    f"[{MUTED}]{note}Next: [bold white]{upcoming or 'finish'}"
                     f"[/] in {left:.0f} s · Ctrl-C to stop[/]")
                 time.sleep(min(0.2, left))
         return "next"
     nxt = "finish" if last else "next scene"
     back = "" if first else " · [bold]b[/bold]: previous scene"
     answer = console.input(
-        f"\n[grey50]Enter: {nxt}{back} · [bold]r[/bold]: run this scene again "
+        f"\n[{MUTED}]Enter: {nxt}{back} · [bold]r[/bold]: run this scene again "
         "from a clean state · [bold]q[/bold]: quit[/] ").strip().lower()
     choice = {"b": "back", "r": "again", "q": "quit"}.get(answer[:1], "next")
     # The first scene has no previous one: run it again instead.

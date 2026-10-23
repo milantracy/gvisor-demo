@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from ..colors import MUTED
 from ..activity import activity
 from ..hostmon import LIMIT, cpu_busy_s, cpu_capacity
 from ..runsc import make_bundle, time_to_ready
@@ -67,9 +68,9 @@ def run(rs, ref, args, results):
             ("▆▆", BOX["terminating"]), (" terminating   ", "white"),
             ("▆▆", BOX["idle"]), (" idle", "white"),
             (f"   (ready and terminating blink for {BLINK_S * 1000:.0f} ms each;"
-             " they really take a few ms)", "grey50"))
+             " they really take a few ms)", MUTED))
         n = len(boxes)
-        return Panel(Group(grid if n else Text("…", style="grey50"), Text(""),
+        return Panel(Group(grid if n else Text("…", style=MUTED), Text(""),
                            legend),
                      border_style="grey30", title_align="left",
                      title=f"Workers: {n}, one sandbox each at a time" if n
@@ -124,17 +125,17 @@ def run(rs, ref, args, results):
         g.add_column(width=12, justify="right", no_wrap=True)
         g.add_column(width=bw, no_wrap=True, overflow="crop")
         g.add_column(width=7, justify="right", no_wrap=True)
-        g.add_column(no_wrap=True, style="grey62")
+        g.add_column(no_wrap=True, style=MUTED)
         for r in rows:
             best = r["rate"] == peak
             g.add_row(Text(f"{r['level']} at once", style="white"),
-                      bar(r["rate"], peak, bw, GV if best else "grey50"),
+                      bar(r["rate"], peak, bw, GV if best else MUTED),
                       Text(f"{r['rate']:.0f}/s", style="bold white"),
                       f"ready {fmt_ms(r['start'])} · destroyed "
                       f"+{fmt_ms(r['destroy'])} · host {fmt_cpu(r['cpu'])}")
         for lv in levels[len(rows):]:
-            g.add_row(Text(f"{lv} at once", style="grey50"), Text(""),
-                      Text("…", style="grey50"), "")
+            g.add_row(Text(f"{lv} at once", style=MUTED), Text(""),
+                      Text("…", style=MUTED), "")
         lines = [g]
         if rows:
             r = max(rows, key=lambda r: r["rate"])

@@ -11,6 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from ..colors import MUTED
 from ..runsc import make_bundle, time_to_ready
 from ..ui import (FRAME, GV, KATA, bar, console, fmt_ms, histogram, out,
                   main_width, percentile, source_line, title,
@@ -80,7 +81,7 @@ def run(rs, ref, args, results):
         """A histogram of ms under a bold heading, or a wait marker."""
         head = Text(f"Latency of {len(ms)} sandboxes", style="bold white")
         if len(ms) < 2:
-            return [Text(""), head, Text("…", style="grey50")]
+            return [Text(""), head, Text("…", style=MUTED)]
         hw = max(10, main_width() - 4 - 6)
         return [Text(""), head] + histogram(
             ms, hw, 4, HIST, [("p50", percentile(ms, 50)),
@@ -119,15 +120,18 @@ def run(rs, ref, args, results):
             seq_parts += [Text(""), g]
         elif not kata_ms:
             seq_parts.append(Text("Kata: not measured yet (see README TODO)",
-                                  style="grey50"))
+                                  style=MUTED))
         if seq:
             seq_parts += latency(seq)
+        # A panel shows its progress count only once its sandboxes start.
         n_done = sum(1 for x in runs if state_of(x) in ("ready", "failed"))
+        started = any(state_of(x) != "waiting" for x in runs)
         parts = [legend,
                  Panel(Group(*seq_parts),
                        title=f"One at a time: {args.runs} sandboxes in sequence",
                        border_style="white",
-                       subtitle=f"{n_done}/{args.runs} ready")]
+                       subtitle=f"{n_done}/{args.runs} ready" if started
+                       else None)]
         if kata_ms:
             parts.append(source_line(kref))
 
@@ -142,7 +146,7 @@ def run(rs, ref, args, results):
                 burst_parts += latency(done)
             sub = f"{len(done)}/{len(burst)} ready"
         else:
-            sub = "starts when one at a time finishes"
+            sub = None
         parts.append(Panel(Group(*burst_parts),
                            title=f"At once: {len(burst)} sandboxes concurrently",
                            border_style="white", subtitle=sub))

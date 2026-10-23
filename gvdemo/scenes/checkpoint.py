@@ -13,6 +13,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from ..colors import MUTED
 from ..activity import activity
 from ..hostmon import drop_caches
 from ..runsc import make_bundle
@@ -44,6 +45,24 @@ def last_line(path):
             return lines[-1] if lines else ""
     except OSError:
         return ""
+
+
+# A number with a unit in a timeline message: 3.92 s, 115 ms, 128 MiB, 34×.
+NUMBER = r"\b\d[\d,.]*\s?(?:ms|s|MiB)\b|\b\d+×"
+
+
+def event_line(t, msg):
+    """One timeline line: the time in cyan, the subject (before ':') in bold,
+    numbers with units in cyan, the rest in white."""
+    line = Text(f"{t:5.1f} s  ", style="bold cyan")
+    subject, sep, rest = msg.partition(": ")
+    if sep:
+        line.append(subject + ":", style="bold white")
+        line.append(" " + rest, style="white")
+    else:
+        line.append(msg, style="white")
+    line.highlight_regex(NUMBER, "bold cyan")
+    return line
 
 
 def first_count(path):
@@ -93,14 +112,15 @@ def run(rs, ref, args, results):
                       Text(fmt_ms(r["ms"]) if r.get("ms") else "…",
                            style=f"bold {GV}" if r.get("fast") else "bold"),
                       Text(last_line(r["log"]), style="cyan"))
-        ev = Text("\n".join(events[-8:]), style="white")
+        ev = Text("\n").join(event_line(t, m) for t, m in events[-8:])
         kata = Text.assemble(("Kata Containers: ", f"bold {KATA}"),
                              (kref.get("status", "no reference loaded"), KATA))
         parts = [t]
         cmp = compare()
         if cmp:
             parts.append(cmp)
-        parts += [Panel(ev, title="Timeline", border_style="grey50"),
+        parts += [Panel(ev, title=Text("Timeline", style="bold white"),
+                        title_align="left", border_style="grey50"),
                   kata, source_line(kref)]
         return Group(*parts)
 
@@ -118,7 +138,7 @@ def run(rs, ref, args, results):
         g.add_column(width=42)
         g.add_column()
         g.add_row(Text("this app, fresh start", style="bold"),
-                  bar(cold, cold, 40, "grey62"),
+                  bar(cold, cold, 40, MUTED),
                   Text(fmt_ms(cold), style="bold"))
         g.add_row(Text(f"this app, restored ({where[0]})", style=f"bold {GV}"),
                   bar(warm, cold, 40, GV),
@@ -130,12 +150,13 @@ def run(rs, ref, args, results):
                       Text(f"{fmt_ms(statistics.median(clones))} median "
                            f"({fmt_spread(clones)})", style=GV))
         if empty:
-            g.add_row(Text("empty sandbox, startup (scene 2)", style="grey62"),
-                      bar(statistics.median(empty), cold, 40, "grey50"),
+            g.add_row(Text("empty sandbox, startup (scene 2)", style=MUTED),
+                      bar(statistics.median(empty), cold, 40, MUTED),
                       Text(f"{fmt_ms(statistics.median(empty))} median, "
-                           "no image to load", style="grey62"))
-        return Panel(g, title="Same app, two ways to start (this run)",
-                     border_style="white")
+                           "no image to load", style=MUTED))
+        return Panel(g, title=Text("Same app, two ways to start (this run)",
+                                   style="bold white"),
+                     title_align="left", border_style="white")
 
     def render():
         return with_activity(body())
@@ -160,7 +181,7 @@ def run(rs, ref, args, results):
 
         def ev(msg):
             """Add a timeline event, stamped with seconds since the scene began."""
-            events.append(f"{time.monotonic() - t_scene:5.1f} s  {msg}")
+            events.append((time.monotonic() - t_scene, msg))
 
         # 1. Cold start: the app pays its full warm-up.
         log = logs / "original.log"
