@@ -15,6 +15,7 @@ import io
 import json
 import os
 import shutil
+import signal
 import sys
 from pathlib import Path
 
@@ -91,12 +92,26 @@ def main():
                     help="save each scene's final screen as DIR/<scene>.svg")
     ap.add_argument("--auto", type=float, default=0,
                     help="advance scenes after N seconds instead of Enter")
+    ap.add_argument("--kiosk", action="store_true",
+                    help="run the scenes in a loop, unattended, moving on "
+                         "after --kiosk-delay seconds; Ctrl-C stops")
+    ap.add_argument("--kiosk-delay", type=float, default=5, metavar="S",
+                    help="kiosk: seconds to show each finished scene "
+                         "(default 5)")
     args = ap.parse_args()
 
     if os.geteuid() != 0:
         sys.exit("runsc needs root: run with sudo")
+    # A closed terminal (SIGHUP) or a kill (SIGTERM) must still clean up
+    # sandboxes and the cgroup, like Ctrl-C does; this matters for --kiosk.
+    def stop(signum, frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGHUP, stop)
     if args.parallel is None:
         args.parallel = args.step
+    if args.kiosk:
+        args.auto = args.kiosk_delay
     ACTIVITY["mode"] = args.activity
     ACTIVITY["width"] = args.activity_width
     scenes = args.scenes
@@ -139,13 +154,23 @@ def main():
     rs.cleanup()
     rs.root.mkdir(parents=True, exist_ok=True)
     results = {}
+    loop = 1
     try:
         i = 0
         while i < len(scenes):
             s = scenes[i]
             FRAME.clear()
             activity.clear()
-            SCENES[s](rs, ref, args, results)
+            try:
+                SCENES[s](rs, ref, args, results)
+            except Exception as e:
+                if not args.kiosk:
+                    raise
+                # Unattended: show the failure, clean up, and keep going.
+                console.print(f"\n[bold red]Scene {s} failed:[/] {e}")
+                with console.status("Cleaning up after the failure…"):
+                    rs.cleanup()
+                    rs.root.mkdir(parents=True, exist_ok=True)
             if args.svg:
                 rec = Console(record=True, width=console.width,
                               file=io.StringIO(), force_terminal=True)
@@ -154,7 +179,12 @@ def main():
                 os.makedirs(args.svg, exist_ok=True)
                 rec.save_svg(os.path.join(args.svg, f"{s}.svg"),
                              title=f"gVisor demo · {s}")
-            choice = ask_next(args, last=i == len(scenes) - 1)
+            last = i == len(scenes) - 1
+            upcoming = scenes[0] if args.kiosk and last else \
+                None if last else scenes[i + 1]
+            choice = ask_next(args, last=last, upcoming=upcoming,
+                              note=f"Kiosk · loop {loop} · " if args.kiosk
+                              else "")
             if choice == "quit":
                 break
             if choice == "again":
@@ -165,6 +195,14 @@ def main():
                     rs.root.mkdir(parents=True, exist_ok=True)
                 continue
             i += 1
+            if args.kiosk and i == len(scenes):
+                # Start the next loop from a clean state.
+                with console.status("Cleaning up for the next loop…"):
+                    rs.cleanup()
+                    rs.root.mkdir(parents=True, exist_ok=True)
+                results = {}
+                loop += 1
+                i = 0
     except KeyboardInterrupt:
         pass
     finally:

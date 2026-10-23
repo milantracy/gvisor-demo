@@ -15,6 +15,7 @@ sudo ./demo.py --svg out/   # also save each final screen as SVG for slides
 sudo ./demo.py cr --cr-cold # restore from disk instead of the page cache
 sudo ./demo.py --cpus 8 --memory 16G   # a different limit (default 16 CPUs, 64G)
 sudo ./demo.py --no-limit               # sandboxes may use the whole host
+sudo ./demo.py --kiosk                  # loop all scenes unattended, 5 s each
 ```
 
 A **Behind the scenes** panel shows every runsc command as it runs (with its
@@ -26,6 +27,14 @@ overrides that. Beside the scene it takes the columns beyond 120 (60 to 100
 wide); `--activity-width N` sets it exactly. Command durations there are whole-command times (a `run`
 includes the sandbox exiting), so they are longer than the startup latency
 figures in the scenes.
+
+**Kiosk mode** (`--kiosk`) runs the scenes in a loop for a booth or a
+screen nobody attends: each finished scene stays up for `--kiosk-delay`
+seconds (default 5) with a countdown to the next one, and after the
+scorecard the loop starts again from a clean state. A scene that fails is
+shown, cleaned up and skipped instead of stopping the loop. Ctrl-C, a
+closed terminal (SIGHUP) or a kill (SIGTERM) all stop it and clean up
+every sandbox and the cgroup.
 
 After each scene the demo asks what to do next: Enter goes on, `r` runs
 the same scene again from a clean state (all sandboxes, images, logs and
@@ -201,5 +210,5 @@ with 1000 running.
 Sizes can be changed with flags: `--runs`, `--burst`, `--cr-mb`, `--cr-warm`,
 `--cr-cold`, `--clones`, `--density`, `--step`, `--parallel`, `--probes`,
 `--sample-interval`, `--idle-window`, `--tp-levels`, `--tp-seconds`,
-`--cpus`, `--memory`, `--platform`, `--activity`,
+`--cpus`, `--memory`, `--kiosk`, `--kiosk-delay`, `--platform`, `--activity`,
 `--activity-width`.

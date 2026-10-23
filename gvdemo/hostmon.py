@@ -61,17 +61,24 @@ def limit_node(name, cpus=None, mem_bytes=None):
     LIMIT.update(cgroup=name, cpus=cpus, mem_bytes=mem_bytes)
 
 
-def remove_cgroup(name):
-    """Remove a (now empty) cgroup tree, deepest directories first."""
+def remove_cgroup(name, timeout_s=10.0):
+    """Remove a cgroup tree, deepest directories first.
+
+    Killed sandboxes take a moment to exit, and a cgroup that still has
+    processes cannot be removed, so keep trying for up to timeout_s.
+    """
     cg = CGROUP_ROOT / name
-    if not cg.exists():
-        return
-    for d in sorted((p for p in cg.rglob("*") if p.is_dir()),
-                    key=lambda p: len(p.parts), reverse=True) + [cg]:
-        try:
-            d.rmdir()
-        except OSError:
-            pass
+    end = time.monotonic() + timeout_s
+    while cg.exists():
+        for d in sorted((p for p in cg.rglob("*") if p.is_dir()),
+                        key=lambda p: len(p.parts), reverse=True) + [cg]:
+            try:
+                d.rmdir()
+            except OSError:
+                pass
+        if not cg.exists() or time.monotonic() > end:
+            return
+        time.sleep(0.2)
 
 
 def cpu_capacity():

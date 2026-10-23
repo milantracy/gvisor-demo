@@ -212,13 +212,20 @@ def source_line(ref):
     return Text(f"Kata source: {ref.get('source', 'n/a')}", style="grey50")
 
 
-def ask_next(args, last=False):
+def ask_next(args, last=False, upcoming=None, note=""):
     """After a scene: "next", "again" (rerun it from a clean state) or "quit".
 
-    With --auto there is no question; the demo moves on after a delay.
+    With --auto there is no question; the demo moves on after a delay,
+    counting down to the upcoming scene so nobody thinks it froze.
     """
     if args.auto:
-        time.sleep(args.auto)
+        end = time.monotonic() + args.auto
+        with console.status("") as status:
+            while (left := end - time.monotonic()) > 0:
+                status.update(
+                    f"[grey62]{note}Next: [bold white]{upcoming or 'finish'}"
+                    f"[/] in {left:.0f} s · Ctrl-C to stop[/]")
+                time.sleep(min(0.2, left))
         return "next"
     nxt = "finish" if last else "next scene"
     answer = console.input(
