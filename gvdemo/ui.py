@@ -120,15 +120,107 @@ def line_chart(points, t_max, width, height, color, fmt, marks=(),
         prev = y
     rows = []
     for r in range(height):
-        label = fmt(vmax) if r == 0 else "0" if r == height - 1 else ""
+        # Zero is drawn at the bottom edge of the last row, so "0" goes on
+        # the axis line below it, not beside that row.
+        label = fmt(vmax) if r == 0 else ""
         t = Text(label.rjust(ylab_w), style="grey50")
-        t.append("┤" if r in (0, height - 1) else "│", style="grey42")
+        t.append("┤" if r == 0 else "│", style="grey42")
         t.append("".join(chr(0x2800 + b) if b else " " for b in cells[r]),
                  style=color)
         rows.append(t)
     axis, labels = time_axis(width, t_max, marks, idle_t)
-    rows.append(Text(" " * ylab_w + "└", style="grey42") + axis)
+    rows.append(Text("0".rjust(ylab_w), style="grey50") +
+                Text("└", style="grey42") + axis)
     rows.append(Text(" " * (ylab_w + 1)) + labels)
+    return rows
+
+
+def histogram(values, width, height, color, marks=(), bins=20,
+              fill="dark_green", ends_style="grey62", mark_style="white",
+              mark_time_style="white"):
+    """A histogram drawn as a smooth outline, as Text rows.
+
+    The values are counted in bins equal intervals over their range; a thin
+    braille line joins each interval's count (at its middle), from zero at
+    the left edge to zero at the right, with a light fill of one dot per
+    cell underneath.
+    marks are (label, value) pairs, drawn as ┴ on the axis and labelled
+    under it. Rows: the plot with a count axis, the value axis, then the
+    range and the mark labels.
+    """
+    lo, hi = min(values), max(values)
+    span = (hi - lo) or 1
+    counts = [0] * bins
+    for v in values:
+        counts[min(bins - 1, int((v - lo) / span * bins))] += 1
+    cmax = max(counts)
+    xs, ys = 2 * width, 4 * height
+    # The outline's corner points, in dot columns: zero, each interval's
+    # middle, zero.
+    pts = [(0.0, 0)] + [((i + 0.5) / bins * (xs - 1), c)
+                        for i, c in enumerate(counts)] + [(xs - 1.0, 0)]
+    line = [[0] * width for _ in range(height)]
+    shade = [[0] * width for _ in range(height)]
+
+    def dot(cells, x, y):
+        cells[height - 1 - y // 4][x // 2] |= _DOT[x % 2][3 - y % 4]
+
+    prev, j = None, 0
+    for x in range(xs):
+        while j < len(pts) - 2 and pts[j + 1][0] < x:
+            j += 1
+        (x0, c0), (x1, c1) = pts[j], pts[j + 1]
+        c = c0 + (c1 - c0) * ((x - x0) / (x1 - x0) if x1 > x0 else 0)
+        y = round(c / cmax * (ys - 1))
+        lo_y, hi_y = (y, y) if prev is None else (min(prev, y), max(prev, y))
+        for yy in range(lo_y, hi_y + 1):
+            dot(line, x, yy)
+        for yy in range(0, lo_y):
+            if x % 2 == 0 and yy % 4 == 1:  # a light fill: one dot per cell
+                dot(shade, x, yy)
+        prev = y
+    rows = []
+    for r in range(height):
+        # Zero is at the bottom edge of the last row: "0" goes on the axis.
+        t = Text(f"{cmax if r == 0 else '':>4} ", style="grey50")
+        t.append("┤" if r == 0 else "│", style="grey42")
+        for cl, cs in zip(line[r], shade[r]):
+            bits = cl | cs
+            t.append(chr(0x2800 + bits) if bits else " ",
+                     style=color if cl else fill)
+        rows.append(t)
+    axis = ["─"] * width
+    used = [False] * width
+    placed = []  # (start column, mark name, value text)
+    col = lambda v: min(width - 1, int((v - lo) / span * width))
+    for name, v in marks:
+        axis[col(v)] = "┴"
+    for name, v in marks:  # labels left to right, skipping overlaps
+        text, c = f"{name} {fmt_ms(v)}", col(v)
+        c = max(0, min(c - len(text) // 2, width - len(text)))
+        if not any(used[max(0, c - 1):c + len(text) + 1]):
+            used[c:c + len(text)] = [True] * len(text)
+            placed.append((c, name, fmt_ms(v)))
+    labels = Text("      ")
+    at = 0
+    for c, name, value in sorted(placed):
+        labels.append(" " * (c - at))
+        labels.append(name, style=mark_style)
+        labels.append(" ")
+        labels.append(value, style=mark_time_style)
+        at = c + len(name) + 1 + len(value)
+    rows.append(Text("   0 ", style="grey50") + Text("└", style="grey42") +
+                Text("".join(axis), style="grey42"))
+    # The fastest and slowest values, labelled, at the two ends of the axis.
+    lo_t, hi_t = fmt_ms(lo), fmt_ms(hi)
+    ends = Text("      ")
+    ends.append("min ", style=mark_style)
+    ends.append(lo_t, style=ends_style)
+    ends.append(" " * max(1, width - 8 - len(lo_t) - len(hi_t)))
+    ends.append("max ", style=mark_style)
+    ends.append(hi_t, style=ends_style)
+    rows.append(ends)
+    rows.append(labels)
     return rows
 
 

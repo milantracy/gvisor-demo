@@ -91,7 +91,7 @@ gvdemo/scenes/          one module per scene: anywhere, startup, throughput,
 | Scene | What happens | Say |
 |---|---|---|
 | 1 Runs anywhere | Checks `/dev/kvm` and vmx/svm, then boots a sandbox that prints gVisor's kernel version and `dmesg`. | "This is a normal cloud VM. A microVM can't start here, and gVisor runs as-is." |
-| 2 Startup latency | 200 sandboxes one after another, then 200 at once, each shown as a square that turns green when ready. Measured from `runsc run` until the sandbox is ready: the app inside is running and has printed its first line. | "About 75 ms until a new sandbox is ready, and 200 at once in about 1.3 s." |
+| 2 Startup latency | 200 sandboxes one after another, then 200 at once. Each sandbox is a box: grey = not started, amber = started, green = ready (its app printed its first line), red = failed; a legend says so. Under each set's boxes: the wall time for all of them and a latency histogram (own axis, p50 and p95 marked). The "at once" panel is on screen from the start, all grey, until its turn. Measured from `runsc run` until the sandbox is ready: the app inside is running and has printed its first line. | "About 75 ms until a new sandbox is ready, and 200 at once in about 1.3 s." |
 | ⇉ Start throughput | At 1, 5, 10, 20, 50 and 100 at once, workers start sandboxes back to back for 4 s each (each sandbox prints, is counted when ready, then exits). One bar per level: sandboxes per second, with p50/p95 latency and host CPU. | "This 16-CPU node starts about 135 sandboxes a second, over 8,000 a minute. It scales with CPU until the CPUs are busy, then each start just waits longer." |
 | 3 Checkpoint/restore | The app loads 128 MiB and initialises for 3 s, then serves. The demo checkpoints it, restores it, then starts 10 clones from one image. The counter keeps going from where it stopped. | "Pay warm-up once. Every later copy starts warm in about 110 ms (about 400 ms from disk). Kata has no checkpoint command." |
 | 4 Density | Starts 300 idle sandboxes in batches while a sampler measures each one. | "About 15 MiB of private memory per sandbox, against about 138 MB for a Kata VM measured the same way. Idle sandboxes use no CPU at all." |
@@ -101,7 +101,7 @@ Results from this host (GCE, 32 vCPU, runsc release-20260727, systrap):
 
 | Result | Value |
 |---|---|
-| startup latency (until sandbox ready) | 78 ms median, p95 88 ms (n=200, 68–93 ms): 200 one after another in 16.2 s; 200 at once all ready in about 1.3 s (p50 about 0.9 s) |
+| startup latency (until sandbox ready) | 78 ms median, p95 88 ms (n=200, 68–93 ms): 200 one after another in 16.2 s; 200 at once (launched within 10 ms) all ready in about 1.7 s, p50 about 1.4 s |
 | checkpoint, 128 MiB app | 54 ms (to page cache) |
 | restore | 109 ms from page cache; 410 ms from disk (`--cr-cold`) |
 | 10 clones at once | 169 ms median (n=10, 152–175 ms); all serving in 208 ms |
