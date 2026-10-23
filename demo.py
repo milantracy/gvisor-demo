@@ -184,10 +184,12 @@ def main():
                 None if last else scenes[i + 1]
             choice = ask_next(args, last=last, upcoming=upcoming,
                               note=f"Kiosk · loop {loop} · " if args.kiosk
-                              else "")
+                              else "", first=i == 0)
             if choice == "quit":
                 break
-            if choice == "again":
+            if choice in ("again", "back"):
+                if choice == "back":
+                    i -= 1
                 # Clean state: no sandboxes, images, logs or bundles left
                 # from the previous attempt.
                 with console.status("Cleaning up for a fresh run…"):

@@ -8,7 +8,7 @@ Kata Containers figures are published reference numbers from
 ## Run
 
 ```
-sudo ./demo.py              # all scenes; Enter: next · r: replay scene · q: quit
+sudo ./demo.py              # all scenes; Enter: next · b: back · r: replay · q: quit
 sudo ./demo.py startup cr   # chosen scenes only
 sudo ./demo.py --auto 4     # hands-free: advance every 4 s
 sudo ./demo.py --svg out/   # also save each final screen as SVG for slides
@@ -36,9 +36,11 @@ shown, cleaned up and skipped instead of stopping the loop. Ctrl-C, a
 closed terminal (SIGHUP) or a kill (SIGTERM) all stop it and clean up
 every sandbox and the cgroup.
 
-After each scene the demo asks what to do next: Enter goes on, `r` runs
-the same scene again from a clean state (all sandboxes, images, logs and
-bundles from the previous attempt are deleted first), and `q` quits.
+After each scene the demo asks what to do next: Enter goes on, `b` goes
+back to the previous scene, `r` runs the same scene again, and `q` quits.
+Back and replay run the scene from a clean state (all sandboxes, images,
+logs and bundles from the previous attempt are deleted first), since every
+number on screen is measured live. The first scene does not offer `b`.
 With `--auto` there is no prompt.
 
 Needs: root, `runsc` on PATH (or `--runsc`), a static `busybox`, and Python 3

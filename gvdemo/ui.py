@@ -304,8 +304,9 @@ def source_line(ref):
     return Text(f"Kata source: {ref.get('source', 'n/a')}", style="grey50")
 
 
-def ask_next(args, last=False, upcoming=None, note=""):
-    """After a scene: "next", "again" (rerun it from a clean state) or "quit".
+def ask_next(args, last=False, upcoming=None, note="", first=False):
+    """After a scene: "next", "back" (to the previous scene), "again" (rerun
+    this one) or "quit". Back and again run the scene from a clean state.
 
     With --auto there is no question; the demo moves on after a delay,
     counting down to the upcoming scene so nobody thinks it froze.
@@ -320,7 +321,10 @@ def ask_next(args, last=False, upcoming=None, note=""):
                 time.sleep(min(0.2, left))
         return "next"
     nxt = "finish" if last else "next scene"
+    back = "" if first else " · [bold]b[/bold]: previous scene"
     answer = console.input(
-        f"\n[grey50]Enter: {nxt} · [bold]r[/bold]: run this scene again from a "
-        "clean state · [bold]q[/bold]: quit[/] ").strip().lower()
-    return {"r": "again", "q": "quit"}.get(answer[:1], "next")
+        f"\n[grey50]Enter: {nxt}{back} · [bold]r[/bold]: run this scene again "
+        "from a clean state · [bold]q[/bold]: quit[/] ").strip().lower()
+    choice = {"b": "back", "r": "again", "q": "quit"}.get(answer[:1], "next")
+    # The first scene has no previous one: run it again instead.
+    return "again" if first and choice == "back" else choice
