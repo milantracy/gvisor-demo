@@ -16,7 +16,7 @@ from ..colors import MUTED
 
 def run(rs, ref, args, results):
     console.clear()
-    out(title("★", "Scorecard",
+    out(title("Scorecard",
               "gVisor measured live on this host · "
               "Kata from published figures"))
     t = Table(box=box.ROUNDED, header_style="bold", expand=True)

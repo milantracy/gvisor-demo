@@ -27,7 +27,7 @@ PHASES = {"starting": "Starting sandboxes", "all idle": "All idle",
 
 def run(rs, ref, args, results):
     console.clear()
-    out(title("4", "Density",
+    out(title("Density",
               "Pack idle sandboxes onto one host and watch what they cost"))
     b = make_bundle(rs.workdir, "density", "exec sleep 1000000")
     kref = ref.get("density", {})

@@ -13,7 +13,13 @@
     "source": "kata-containers docs/Limitations.md (main, 2026-10). https://github.com/kata-containers/kata-containers/blob/main/docs/Limitations.md"
   },
   "hardware": {
-    "note": "Kata needs KVM. GCP: nested virtualization is off by default and unavailable on E2, Arm and most AMD VMs. AWS: non-metal support only since 2026-02, on some instance types. Azure: blocked by Trusted Launch, the default.",
-    "source": "cloud.google.com/compute/docs/instances/nested-virtualization/overview · aws.amazon.com/about-aws/whats-new/2026/02/amazon-ec2-nested-virtualization-on-virtual/ · learn.microsoft.com/azure/virtual-machines/sizes/general-purpose/dv5-series"
+    "note": "Most cloud providers turn off nested virtualization by default.",
+    "source": "GCP, AWS and Azure nested virtualization docs (links in kata_reference.json)",
+    "detail": "Kata needs KVM. GCP: nested virtualization is off by default and unavailable on E2, Arm and most AMD VMs. AWS: non-metal support only since 2026-02, on some instance types. Azure: blocked by Trusted Launch, the default.",
+    "links": [
+      "cloud.google.com/compute/docs/instances/nested-virtualization/overview",
+      "aws.amazon.com/about-aws/whats-new/2026/02/amazon-ec2-nested-virtualization-on-virtual/",
+      "learn.microsoft.com/azure/virtual-machines/sizes/general-purpose/dv5-series"
+    ]
   }
 }

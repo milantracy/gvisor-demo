@@ -44,7 +44,7 @@ def kata_startup_ms(kref):
 
 def run(rs, ref, args, results):
     console.clear()
-    out(title("2", "Startup latency",
+    out(title("Startup latency",
               "Measured from `runsc run` until the sandbox is ready: the app "
               "inside is running and has printed its first line"))
     b = make_bundle(rs.workdir, "startup", "echo ready")

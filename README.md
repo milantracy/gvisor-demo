@@ -3,7 +3,8 @@
 A terminal demo for talks and customer meetings. It starts real gVisor
 sandboxes on the presenter's machine and shows the results as they happen.
 Kata Containers figures are published reference numbers from
-`kata_reference.json`. Each one appears on screen with its source.
+`kata_reference.json`, each with its source (shown on screen, except the
+short cloud note in scene 1).
 
 ## Run
 
@@ -27,6 +28,10 @@ overrides that. Beside the scene it takes the columns beyond 130 (56 to 90
 wide); `--activity-width N` sets it exactly. Command durations there are whole-command times (a `run`
 includes the sandbox exiting), so they are longer than the startup latency
 figures in the scenes.
+
+Scene titles are drawn double size with DEC double-size lines, which macOS
+Terminal.app, xterm, Windows Terminal and Konsole support. Other terminals
+(iTerm2) show the title twice; use `--title-size normal` there.
 
 **Kiosk mode** (`--kiosk`) runs the scenes in a loop for a booth or a
 screen nobody attends: each finished scene stays up for `--kiosk-delay`

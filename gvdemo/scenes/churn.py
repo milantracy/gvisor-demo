@@ -28,7 +28,7 @@ BLINK_S = 0.05
 
 def run(rs, ref, args, results):
     console.clear()
-    out(title("⇉", "Sandbox churn",
+    out(title("Sandbox churn",
               "How fast sandboxes are created and destroyed, as more run at "
               "once"))
     b = make_bundle(rs.workdir, "churn", "echo ready")
@@ -128,7 +128,8 @@ def run(rs, ref, args, results):
         for r in rows:
             best = r["rate"] == peak
             g.add_row(Text(f"{r['level']} at once", style="white"),
-                      bar(r["rate"], peak, bw, GV if best else MUTED),
+                      bar(r["rate"], peak, bw,
+                          GV if best else "bright_white"),
                       Text(f"{r['rate']:.0f}/s", style="bold white"),
                       f"ready {fmt_ms(r['start'])} · destroyed "
                       f"+{fmt_ms(r['destroy'])} · host {fmt_cpu(r['cpu'])}")

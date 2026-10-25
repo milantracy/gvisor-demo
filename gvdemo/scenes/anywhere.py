@@ -12,13 +12,14 @@ from ..colors import MUTED
 from ..hostmon import host_facts
 from ..runsc import make_bundle
 from ..ui import (FRAME, GV, KATA, console, fmt_ms, out, scene_live,
-                  source_line, title, with_activity)
+                  title, with_activity)
 
 
 def run(rs, ref, args, results):
     console.clear()
-    out(title("1", "Runs where VMs cannot",
-              "gVisor needs no hardware virtualization"))
+    out(title("gVisor runs anywhere",
+              "No hardware virtualization needed · "
+              "gVisor runs on x86 and ARM"))
     f = host_facts()
     results["host"] = f
     t = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold")
@@ -29,7 +30,7 @@ def run(rs, ref, args, results):
         t.add_row("Sandboxes limited to", " · ".join(
             x for x in (f"{f['limit_cpus']} CPUs" if f["limit_cpus"] else "",
                         f"{f['limit_mem_gib']:g} GiB" if f["limit_mem_gib"]
-                        else "") if x) + " (like a smaller node)")
+                        else "") if x))
     t.add_row("/dev/kvm", "[green]present[/]" if f["kvm"] else "[red]absent[/]")
     t.add_row("CPU virtualization (vmx/svm)",
               "[green]exposed[/]" if f["virt_flags"] else
@@ -46,20 +47,21 @@ def run(rs, ref, args, results):
     state = {}
 
     def body():
-        parts = [t, Panel(verdict, title="Can this host run sandboxes?",
-                          border_style="white")]
+        parts = [t, Panel(verdict,
+                          title="[bright_white]Can this host run "
+                                "sandboxes?[/]",
+                          title_align="left", border_style="grey30")]
         if "res" not in state:
             parts.append(Text("Starting a gVisor sandbox on this host…",
                               style=MUTED))
         elif state["res"].returncode == 0:
             parts.append(Panel(Text(state["res"].stdout.rstrip(), style="cyan"),
-                               title="Output from inside the sandbox "
-                                     "(gVisor's own kernel answers)",
-                               border_style="grey50"))
+                               title="[bright_white]Output from inside "
+                                     "the sandbox[/]",
+                               title_align="left", border_style="grey30"))
         note = ref.get("hardware", {}).get("note")
-        if note:
-            parts += [Text(note, style=MUTED),
-                      source_line(ref.get("hardware", {}))]
+        if note:  # sources are in kata_reference.json
+            parts.append(Text(f"• {note}", style="bright_white"))
         return Group(*parts)
 
     def render():

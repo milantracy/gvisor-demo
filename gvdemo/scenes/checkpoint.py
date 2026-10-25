@@ -85,7 +85,7 @@ def wait_for(path, needle, timeout=30):
 
 def run(rs, ref, args, results):
     console.clear()
-    out(title("3", "Checkpoint & restore",
+    out(title("Checkpoint & restore",
               "Warm an app once, snapshot it, then start warm copies"))
     b = make_bundle(rs.workdir, "cr",
                     APP.format(mb=args.cr_mb, warm=args.cr_warm, tick=TICK_S),

@@ -157,6 +157,7 @@ class Activity:
             body.reverse()
         rule = Text("─" * (width - 4), style="grey30")
         return Panel(Group(*head, rule, *body), title="Behind the scenes",
+                     title_align="left",
                      border_style="magenta", width=width, height=height)
 
 

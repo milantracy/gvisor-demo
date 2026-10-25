@@ -11,6 +11,7 @@ from rich.console import Console, Group
 from rich.live import Live
 from rich.live_render import LiveRender
 from rich.panel import Panel
+from rich.segment import Segment
 from rich.table import Table
 from rich.text import Text
 
@@ -127,14 +128,11 @@ def with_activity(main):
 
 
 def bar(value, vmax, width, color):
-    """A horizontal bar with 1/8-cell resolution."""
-    blocks = " ▏▎▍▌▋▊▉█"
-    cells = 0 if vmax <= 0 else max(0.0, min(1.0, value / vmax)) * width
-    full = int(cells)
-    s = "█" * full
-    if full < width:
-        s += blocks[int((cells - full) * 8)]
-    return Text(s.ljust(width), style=color)
+    """A horizontal bar in whole cells. Partial blocks (▌) gave the bars a
+    ragged end; a value above zero still shows at least one cell."""
+    frac = 0.0 if vmax <= 0 else max(0.0, min(1.0, value / vmax))
+    cells = round(frac * width) or (1 if frac > 0 else 0)
+    return Text(("█" * cells).ljust(width), style=color)
 
 
 def time_axis(width, t_max, marks, idle_t=None):
@@ -342,13 +340,45 @@ def percentile(xs, p):
     return xs[lo] + (xs[hi] - xs[lo]) * (k - lo)
 
 
-def title(n, text, sub):
+# Large titles use DEC double-size lines: "ESC # 3" draws a line's top half
+# and "ESC # 4" its bottom half, each cell twice as wide and tall. macOS
+# Terminal.app, xterm, Windows Terminal and Konsole support them; other
+# terminals (iTerm2) show the title twice, so --title-size normal turns
+# them off.
+TITLE = {"large": True}
+_RAW = (("raw",),)  # marks a segment as an escape code that takes no cells
+
+
+class _LargeTitle:
+    def __init__(self, text):
+        self.text = text
+
+    def __rich_console__(self, console, options):
+        text = self.text.copy()
+        text.justify = "center"
+        half = options.max_width // 2
+        # An SVG export (record) and a pipe get the title once, normal size.
+        if (not TITLE["large"] or not console.is_terminal or console.record
+                or text.cell_len > half):
+            yield text
+            return
+        line = console.render_lines(text, options.update_width(half),
+                                    pad=False)[0]
+        for half_code in ("\x1b#3", "\x1b#4"):
+            yield Segment(half_code, control=_RAW)
+            yield from line
+            yield Segment.line()
+
+
+def title(text, sub):
     """A scene's heading, with the resource setup right under it."""
-    head = Panel(Text.assemble((text, "bold white"), "\n",
-                               (sub, f"italic {MUTED}"), justify="center"),
-                 title=f"[bold]{n}[/]", border_style="bright_blue",
-                 box=box.HEAVY)
-    return Group(head, limit_banner())
+    # Capitalize each word's first letter; words with capitals already
+    # ("gVisor", "VMs") stay as they are.
+    text = " ".join(word if any(c.isupper() for c in word)
+                    else word[:1].upper() + word[1:] for word in text.split())
+    return Group(_LargeTitle(Text(text, style="bold bright_white")),
+                 Text(sub, style="italic bright_white", justify="center"),
+                 limit_banner())
 
 
 def limit_banner():
@@ -368,7 +398,8 @@ def limit_banner():
 
 
 def source_line(ref):
-    return Text(f"Kata source: {ref.get('source', 'n/a')}", style=MUTED)
+    return Text(f"Kata source: {ref.get('source', 'n/a')}",
+                style="bright_white")
 
 
 def ask_next(args, last=False, upcoming=None, note="", first=False):
@@ -389,7 +420,7 @@ def ask_next(args, last=False, upcoming=None, note="", first=False):
         return "next"
     nxt = "finish" if last else "next scene"
     back = "" if first else " · [bold]b[/bold]: previous scene"
-    prompt = (f"[{MUTED}]Enter: {nxt}{back} · [bold]r[/bold]: run this scene "
+    prompt = (f"[grey50]Enter: {nxt}{back} · [bold]r[/bold]: run this scene "
               "again from a clean state · [bold]q[/bold]: quit[/] ")
     _VIEW["prompt"] = prompt
     try:

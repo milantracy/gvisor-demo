@@ -28,7 +28,7 @@ from gvdemo.hostmon import limit_node, remove_cgroup  # noqa: E402
 from gvdemo.runsc import Runsc  # noqa: E402
 from gvdemo.scenes import SCENES  # noqa: E402
 from gvdemo.activity import activity  # noqa: E402
-from gvdemo.ui import (ACTIVITY, FRAME, HEADER, ask_next,  # noqa: E402
+from gvdemo.ui import (ACTIVITY, FRAME, HEADER, TITLE, ask_next,  # noqa: E402
                        console, watch_resize)
 
 
@@ -82,6 +82,11 @@ def main():
                     help="limit all sandboxes to SIZE of memory (default 64G)")
     ap.add_argument("--no-limit", action="store_true",
                     help="no cgroup limit: sandboxes may use the whole host")
+    ap.add_argument("--title-size", choices=["large", "normal"],
+                    default="large",
+                    help="large: double-size scene titles (macOS Terminal.app, "
+                         "xterm, Windows Terminal, Konsole); use normal in "
+                         "terminals without them, such as iTerm2")
     ap.add_argument("--activity", choices=["auto", "side", "bottom", "off"],
                     default="auto",
                     help="behind-the-scenes panel: beside the scene when the "
@@ -115,6 +120,7 @@ def main():
     if args.kiosk:
         args.auto = args.kiosk_delay
     ACTIVITY["mode"] = args.activity
+    TITLE["large"] = args.title_size == "large"
     ACTIVITY["width"] = args.activity_width
     scenes = args.scenes
     if not scenes or "all" in scenes:
