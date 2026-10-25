@@ -226,9 +226,8 @@ def run(rs, ref, args, results):
         size = sum(p.stat().st_size for p in img.rglob("*") if p.is_file())
         ev(f"checkpoint taken in {fmt_ms(ck)}, then the sandbox is stopped")
         rows["original"]["how"] = "cold start → checkpointed"
-        # The checkpoint already stopped the sandbox (no --leave-running);
-        # delete removes its state under --root.
-        rs.call("delete", "original", check=False)
+        # The checkpoint stops the sandbox (no --leave-running); it is
+        # deleted with the others at the end of the scene.
         live.update(render())
         time.sleep(3)
 
