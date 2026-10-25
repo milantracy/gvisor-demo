@@ -55,7 +55,7 @@ def main():
     ap.add_argument("--reference", default=str(HERE / "kata_reference.json"))
     ap.add_argument("--runs", type=int, default=200, help="sequential startups")
     ap.add_argument("--burst", type=int, default=200, help="concurrent startups")
-    ap.add_argument("--churn-levels", default="1,5,10,20,50,100",
+    ap.add_argument("--churn-levels", default="1,10,20,50,100",
                     help="sandbox churn: sandboxes starting at once, per level")
     ap.add_argument("--churn-seconds", type=float, default=5,
                     help="sandbox churn: seconds to run each level")

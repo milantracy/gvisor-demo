@@ -349,7 +349,9 @@ TITLE = {"large": True}
 _RAW = (("raw",),)  # marks a segment as an escape code that takes no cells
 
 
-class _LargeTitle:
+class Large:
+    """One line of text, drawn double size (centred)."""
+
     def __init__(self, text):
         self.text = text
 
@@ -358,9 +360,18 @@ class _LargeTitle:
         text.justify = "center"
         half = options.max_width // 2
         # An SVG export (record) and a pipe get the title once, normal size.
-        if (not TITLE["large"] or not console.is_terminal or console.record
-                or text.cell_len > half):
+        if not TITLE["large"] or not console.is_terminal or console.record:
             yield text
+            return
+        if text.cell_len > half:
+            # Too wide: normal size, still two rows so nothing below moves.
+            # "ESC # 5" makes each row single size again, in case it was
+            # drawn double before (a live count that grew a digit).
+            line = console.render_lines(text, options, pad=False)[0]
+            for row in (line, []):
+                yield Segment("\x1b#5", control=_RAW)
+                yield from row
+                yield Segment.line()
             return
         line = console.render_lines(text, options.update_width(half),
                                     pad=False)[0]
@@ -370,13 +381,37 @@ class _LargeTitle:
             yield Segment.line()
 
 
+# Solid digits: 3 x 5 pixels, each pixel a full block two cells wide.
+_DIGITS = {
+    "0": ["###", "#.#", "#.#", "#.#", "###"],
+    "1": [".#.", "##.", ".#.", ".#.", "###"],
+    "2": ["###", "..#", "###", "#..", "###"],
+    "3": ["###", "..#", "###", "..#", "###"],
+    "4": ["#.#", "#.#", "###", "..#", "..#"],
+    "5": ["###", "#..", "###", "..#", "###"],
+    "6": ["###", "#..", "###", "#.#", "###"],
+    "7": ["###", "..#", "..#", "..#", "..#"],
+    "8": ["###", "#.#", "###", "#.#", "###"],
+    "9": ["###", "#.#", "###", "..#", "###"],
+    ",": [".", ".", ".", "#", "#"],
+}
+
+
+def big_number(text, style):
+    """A number (digits and commas) five rows tall, as one Text."""
+    rows = ["  ".join("".join("██" if p == "#" else "  "
+                              for p in _DIGITS[c][r]) for c in text)
+            for r in range(5)]
+    return Text("\n".join(rows), style=style, no_wrap=True)
+
+
 def title(text, sub):
     """A scene's heading, with the resource setup right under it."""
     # Capitalize each word's first letter; words with capitals already
     # ("gVisor", "VMs") stay as they are.
     text = " ".join(word if any(c.isupper() for c in word)
                     else word[:1].upper() + word[1:] for word in text.split())
-    return Group(_LargeTitle(Text(text, style="bold bright_white")),
+    return Group(Large(Text(text, style="bold bright_white")),
                  Text(sub, style="italic bright_white", justify="center"),
                  limit_banner())
 
