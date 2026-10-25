@@ -59,11 +59,14 @@ def main():
                     help="sandbox churn: sandboxes starting at once, per level")
     ap.add_argument("--churn-seconds", type=float, default=5,
                     help="sandbox churn: seconds to run each level")
-    ap.add_argument("--cr-mb", type=int, default=128, help="app working set")
-    ap.add_argument("--cr-warm", type=float, default=3, help="app init seconds")
+    ap.add_argument("--cr-mb", type=int, default=128,
+                    help="checkpoint/restore: size of the app's in-memory "
+                         "index, MiB (sets its warm-up time)")
     ap.add_argument("--cr-cold", action="store_true",
                     help="restore from disk: drop the host page cache first")
-    ap.add_argument("--clones", type=int, default=10)
+    ap.add_argument("--restores", "--clones", dest="clones", type=int,
+                    default=10, help="checkpoint/restore: copies restored "
+                                     "at once from one image")
     ap.add_argument("--density", type=int, default=300, help="sandboxes")
     ap.add_argument("--step", type=int, default=20, help="sandboxes per batch")
     ap.add_argument("--parallel", type=int, default=None,

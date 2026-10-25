@@ -71,7 +71,7 @@ own: a `config.json` that points at the shared rootfs and sets
 
 With a limit, CPU figures are the group's own use (`cpu.stat`), out of N
 cores, and the density projection uses the memory limit. What the limit covers: every sandbox's processes (sentry, gofer, stubs) in
-all scenes, including probes, clones and restores; their memory, including
+all scenes, including probes and restores; their memory, including
 kernel memory and the page cache they create; and each `runsc` command once
 it joins the sandbox's cgroup. Not covered: the first moments of each
 `runsc` command, and the demo's own Python process (UI and sampler), which
@@ -100,7 +100,7 @@ gvdemo/scenes/          one module per scene: anywhere, startup, churn,
 | 1 Runs anywhere | Checks `/dev/kvm` and vmx/svm, then boots a sandbox that prints gVisor's kernel version and `dmesg`. | "This is a normal cloud VM. A microVM can't start here, and gVisor runs as-is." |
 | 2 Startup latency | 200 sandboxes one after another, then 200 at once. Each sandbox is a box: grey = not started, amber = started, green = ready (its app printed its first line), red = failed; a legend says so. Under each set's boxes: the wall time for all of them and a latency histogram (own axis, p50 and p95 marked). The "at once" panel is on screen from the start, all grey, until its turn. Measured from `runsc run` until the sandbox is ready: the app inside is running and has printed its first line. | "About 75 ms until a new sandbox is ready, and 200 at once in about 1.3 s." |
 | ⇉ Sandbox churn (`churn`) | At 1, 10, 20, 50 and 100 at once, workers create sandboxes back to back for 5 s each: each sandbox prints, exits and is destroyed, then the worker creates the next. A live count shows the sandboxes created and destroyed so far and the time elapsed. Below it, one bar per level, updated live: sandboxes created and destroyed per second, with p50 ready and destroy times. | "A sandbox is created, ready and gone in about 80 ms; destroying it takes about 3 ms. This 16-CPU node cycles about 145 sandboxes a second, over 8,000 a minute." |
-| 3 Checkpoint/restore | The app loads 128 MiB and initialises for 3 s, then serves. The demo checkpoints it, restores it, then starts 10 clones from one image. The counter keeps going from where it stopped. | "Pay warm-up once. Every later copy starts warm in about 110 ms (about 400 ms from disk). Kata has no checkpoint command." |
+| 3 Checkpoint/restore | A Python app warms up for real: it imports libraries, then builds a 128 MiB in-memory index, then serves. The demo checkpoints it, restores it, then restores 10 more copies at once from the same image. The counter keeps going from where it stopped. | "Pay warm-up once. Every later copy starts warm in about 110 ms (about 400 ms from disk). Kata has no checkpoint command." |
 | 4 Density | Starts 300 idle sandboxes in batches while a sampler measures each one. | "About 15 MiB of private memory per sandbox, against about 138 MB for a Kata VM measured the same way. Idle sandboxes use no CPU at all." |
 | ★ Scorecard | Summary table, with sample sizes and sources. | |
 
@@ -111,7 +111,7 @@ Results from this host (GCE, 32 vCPU, runsc release-20260727, systrap):
 | startup latency (until sandbox ready) | 78 ms median, p95 88 ms (n=200, 68–93 ms): 200 one after another in 16.2 s; 200 at once (launched within 10 ms) all ready in about 1.7 s, p50 about 1.4 s |
 | checkpoint, 128 MiB app | 54 ms (to page cache) |
 | restore | 109 ms from page cache; 410 ms from disk (`--cr-cold`) |
-| 10 clones at once | 169 ms median (n=10, 152–175 ms); all serving in 208 ms |
+| 10 restores at once | 169 ms median (n=10, 152–175 ms); all serving in 208 ms |
 | private memory per idle sandbox | 15.2 MiB median (n=300); host RAM 17.9 MiB each; 300 sandboxes started in 15 batches in about 7 s |
 | host RAM per idle sandbox | 17.8 MiB (= PSS 15.6 + kernel 2.3) |
 | sandbox churn (peak) | about 145 created and destroyed per second with 20 at once at the default 16-CPU limit (ready 124 ms, destroyed +9 ms); one at a time: ready 76 ms, destroyed +3 ms |
@@ -134,9 +134,12 @@ Results from this host (GCE, 32 vCPU, runsc release-20260727, systrap):
   writes the checkpoint through the page cache and returns before it reaches
   the disk. `--cr-cold` runs `sync` and drops the host page cache first, so
   the restore reads from disk. That slows the whole host for a moment.
-- **The cold start in scene 3 is simulated** (random data plus a sleep), so the
-  "N× faster than cold" ratio depends on `--cr-mb` and `--cr-warm`.
-- **The workload is tiny**: busybox with `--network=none`. Real images and
+- **The warm-up in scene 3 is real work but chosen by us**: Python imports
+  plus building an index, a few seconds of CPU. The "N× faster than cold"
+  ratio depends on `--cr-mb`, which sets the index size. The app runs the
+  host's `python3` from the host's `/usr`, mounted read-only.
+- **The workload is tiny**: busybox (a small Python app in scene 3) with
+  `--network=none`. Real images and
   networking add time to both runtimes.
 - **These are demo runs, not benchmarks.** Each figure shows n and its range.
   For a publication, use n≥32 with confidence intervals.
@@ -214,8 +217,8 @@ kernel cost; removing it needs a runsc change (fewer `pivot_root` calls or
 fewer threads per sandbox). The same lock caps the ramp rate at about 90/s
 with 1000 running.
 
-Sizes can be changed with flags: `--runs`, `--burst`, `--cr-mb`, `--cr-warm`,
-`--cr-cold`, `--clones`, `--density`, `--step`, `--parallel`, `--probes`,
+Sizes can be changed with flags: `--runs`, `--burst`, `--cr-mb`,
+`--cr-cold`, `--restores`, `--density`, `--step`, `--parallel`, `--probes`,
 `--sample-interval`, `--idle-window`, `--churn-levels`, `--churn-seconds`,
 `--cpus`, `--memory`, `--kiosk`, `--kiosk-delay`, `--platform`, `--activity`,
 `--activity-width`.

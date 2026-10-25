@@ -104,8 +104,12 @@ class Runsc:
         shutil.rmtree(self.workdir, ignore_errors=True)
 
 
-def make_bundle(workdir, name, script, tmpfs_mb=None):
-    """An OCI bundle whose rootfs is a single static busybox."""
+def make_bundle(workdir, name, script, tmpfs_mb=None, python=False):
+    """An OCI bundle whose rootfs is a single static busybox.
+
+    With python=True, script is a Python program instead, run by the host's
+    python3 from the host's /usr, mounted read-only.
+    """
     b = Path(workdir) / "bundles" / name
     rootfs = b / "rootfs"
     (rootfs / "bin").mkdir(parents=True, exist_ok=True)
@@ -118,16 +122,30 @@ def make_bundle(workdir, name, script, tmpfs_mb=None):
                        "date", "printf"):
             (rootfs / "bin" / applet).symlink_to("busybox")
     tmp_opts = [f"size={tmpfs_mb}m"] if tmpfs_mb else []
+    args = ["/bin/sh", "-c", script]
+    env = ["PATH=/bin"]
+    mounts = []
+    if python:
+        (rootfs / "app.py").write_text(script)
+        for d in ("usr", "lib", "lib64"):
+            if not (rootfs / d).exists():
+                (rootfs / d).mkdir() if d == "usr" else \
+                    (rootfs / d).symlink_to(f"usr/{d}")
+        args = ["/usr/bin/python3", "-u", "/app.py"]
+        env = ["PATH=/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1"]
+        mounts = [{"destination": "/usr", "type": "bind", "source": "/usr",
+                   "options": ["rbind", "ro"]}]
     spec = {
         "ociVersion": "1.0.0",
-        "process": {"args": ["/bin/sh", "-c", script], "cwd": "/",
-                    "env": ["PATH=/bin"], "user": {"uid": 0, "gid": 0}},
+        "process": {"args": args, "cwd": "/", "env": env,
+                    "user": {"uid": 0, "gid": 0}},
         "root": {"path": "rootfs", "readonly": True},
         "hostname": "gvisor-demo",
         "mounts": [
             {"destination": "/proc", "type": "proc", "source": "proc"},
             {"destination": "/tmp", "type": "tmpfs", "source": "tmpfs",
              "options": tmp_opts},
+            *mounts,
         ],
         "linux": {"namespaces": [{"type": t} for t in
                                  ("pid", "mount", "ipc", "uts", "network")]},

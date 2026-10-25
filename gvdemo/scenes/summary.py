@@ -56,7 +56,7 @@ def run(rs, ref, args, results):
                   f"{fmt_ms(c['restore_ms'])} (n=1, {c['restore_from']}; "
                   f"{c['cold_ms'] / c['restore_ms']:.0f}× faster than cold)",
                   short)
-        t.add_row(f"{len(c['clone_ms'])} clones at once",
+        t.add_row(f"{len(c['clone_ms'])} restores at once",
                   f"{fmt_ms(c['clone_median_ms'])} median "
                   f"({fmt_spread(c['clone_ms'])})", short)
 
