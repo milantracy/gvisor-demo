@@ -173,8 +173,11 @@ def run(rs, ref, args, results):
                       bar(r["rate"], scale, bw,
                           GV if best else "bright_white"),
                       Text(f"{r['rate']:.0f}/s", style="bold white"),
-                      f"ready {fmt_ms(r['start'])} · destroyed "
-                      f"+{fmt_ms(r['destroy'])} · {r['cpu']:.1f} CPUs")
+                      Text.assemble(  # times in cyan, as in the other scenes
+                          "ready ", (fmt_ms(r["start"]), "bold cyan"),
+                          " · destroyed ",
+                          (f"+{fmt_ms(r['destroy'])}", "bold cyan"),
+                          f" · {r['cpu']:.1f} CPUs"))
         for lv in levels[len(shown):]:
             # Levels not run yet are grey; they turn white once they start.
             g.add_row(Text(workers(lv), style="grey50"), Text(""),
@@ -187,8 +190,8 @@ def run(rs, ref, args, results):
                 f"second with {workers(r['level'])} (≈ {r['rate'] * 60:,.0f} "
                 "per minute)", style="bold white"), Text("")]
         return Panel(Group(*lines), border_style="grey30", title_align="left",
-                     title="Sandboxes created and destroyed per second (p50 "
-                           "times)",
+                     title=Text("Sandboxes created and destroyed per second "
+                                "(p50 times)", style="bright_white"),
                      subtitle=f"limited to {ncpu} CPUs" if LIMIT["cpus"] else
                      f"host has {ncpu} vCPUs", subtitle_align="right")
 

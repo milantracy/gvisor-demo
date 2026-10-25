@@ -89,14 +89,17 @@ gvdemo/runsc.py         runsc CLI wrapper, busybox OCI bundles, startup latency
 gvdemo/hostmon.py       host measurements: per-sandbox sampler, meminfo, settling
 gvdemo/ui.py            rich helpers: bars, sparklines, formatting, out()/FRAME
 gvdemo/activity.py      the "Behind the scenes" panel: commands and background steps
-gvdemo/scenes/          one module per scene: anywhere, startup, churn,
+gvdemo/scenes/          one module per scene: intro, anywhere, startup, churn,
                         checkpoint, density, summary
+gvdemo/logo_pixels.py   the gVisor logo as pixel art (generated)
+tools/logo_pixels.py    makes logo_pixels.py from assets/gvisor-logo.png
 ```
 
 ## Scenes and talking points
 
 | Scene | What happens | Say |
 |---|---|---|
+| Intro (`intro`) | The gVisor logo in pixel art, on a white card. | "Everything you'll see is measured live on this machine." |
 | 1 Runs anywhere | Checks `/dev/kvm` and vmx/svm, then boots a sandbox that prints gVisor's kernel version and `dmesg`. | "This is a normal cloud VM. A microVM can't start here, and gVisor runs as-is." |
 | 2 Startup latency | 200 sandboxes one after another, then 200 at once. Each sandbox is a box: grey = not started, amber = started, green = ready (its app printed its first line), red = failed; a legend says so. Under each set's boxes: the wall time for all of them and a latency histogram (own axis, p50 and p95 marked). The "at once" panel is on screen from the start, all grey, until its turn. Measured from `runsc run` until the sandbox is ready: the app inside is running and has printed its first line. | "About 75 ms until a new sandbox is ready, and 200 at once in about 1.3 s." |
 | ⇉ Sandbox churn (`churn`) | At 1, 10, 20, 50 and 100 at once, workers create sandboxes back to back for 5 s each: each sandbox prints, exits and is destroyed, then the worker creates the next. A live count shows the sandboxes created and destroyed so far and the time elapsed. Below it, one bar per level, updated live: sandboxes created and destroyed per second, with p50 ready and destroy times. | "A sandbox is created, ready and gone in about 80 ms; destroying it takes about 3 ms. This 16-CPU node cycles about 145 sandboxes a second, over 8,000 a minute." |

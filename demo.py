@@ -5,7 +5,7 @@ Every gVisor number on screen is measured live on this host with runsc.
 Kata Containers numbers are published reference figures, loaded from
 kata_reference.json, and are always shown with their source.
 
-Usage: sudo ./demo.py [all|anywhere|startup|churn|cr|density|summary] [options]
+Usage: sudo ./demo.py [all|intro|anywhere|startup|churn|cr|density|summary] [options]
 """
 
 import argparse
