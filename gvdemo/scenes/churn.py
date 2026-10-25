@@ -4,7 +4,6 @@ import threading
 import time
 
 from rich.console import Group
-from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -14,7 +13,7 @@ from ..activity import activity
 from ..hostmon import LIMIT, cpu_busy_s, cpu_capacity
 from ..runsc import make_bundle, time_to_ready
 from ..ui import (FRAME, GV, bar, console, fmt_cpu, fmt_ms, main_width, meter,
-                  out, percentile, title, with_activity)
+                  out, percentile, scene_live, title, with_activity)
 
 START = "yellow3"   # create → ready, as "started" in startup latency
 # The worker grid: one box per worker, coloured by what its sandbox is doing.
@@ -201,8 +200,7 @@ def run(rs, ref, args, results):
                 "destroy": st["destroy"], "life": st["life"],
                 "cpu": (b1 - b0) / args.churn_seconds}
 
-    with Live(console=console, refresh_per_second=20,  # for the blinks
-              get_renderable=render) as live:
+    with scene_live(render, refresh_per_second=20) as live:
         for i, n in enumerate(levels):
             activity.note(f"level {n}: {n} workers for {args.churn_seconds:g} s")
             rows.append(level(n, i))

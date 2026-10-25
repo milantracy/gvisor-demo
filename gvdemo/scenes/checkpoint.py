@@ -8,7 +8,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 from rich import box
 from rich.console import Group
-from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -18,7 +17,7 @@ from ..activity import activity
 from ..hostmon import drop_caches
 from ..runsc import make_bundle
 from ..ui import (FRAME, GV, KATA, bar, console, fmt_ms, fmt_spread, out,
-                  source_line, title, with_activity)
+                  scene_live, source_line, title, with_activity)
 
 TICK_S = 0.2  # the app counts one "request" per tick
 
@@ -175,8 +174,7 @@ def run(rs, ref, args, results):
         rows[name]["ms"] = (rows[name]["t_ready"] - t0) * 1000
         return rows[name]["ms"]
 
-    with Live(console=console, refresh_per_second=10,
-              get_renderable=render) as live:
+    with scene_live(render, refresh_per_second=10) as live:
         t_scene = time.monotonic()
 
         def ev(msg):

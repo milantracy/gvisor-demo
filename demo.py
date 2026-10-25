@@ -28,7 +28,8 @@ from gvdemo.hostmon import limit_node, remove_cgroup  # noqa: E402
 from gvdemo.runsc import Runsc  # noqa: E402
 from gvdemo.scenes import SCENES  # noqa: E402
 from gvdemo.activity import activity  # noqa: E402
-from gvdemo.ui import ACTIVITY, FRAME, ask_next, console  # noqa: E402
+from gvdemo.ui import (ACTIVITY, FRAME, HEADER, ask_next,  # noqa: E402
+                       console, watch_resize)
 
 
 def parse_size(text):
@@ -108,6 +109,7 @@ def main():
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGHUP, stop)
+    watch_resize()  # redraw cleanly when the terminal is resized or zoomed
     if args.parallel is None:
         args.parallel = args.step
     if args.kiosk:
@@ -160,6 +162,7 @@ def main():
         while i < len(scenes):
             s = scenes[i]
             FRAME.clear()
+            HEADER.clear()
             activity.clear()
             try:
                 SCENES[s](rs, ref, args, results)

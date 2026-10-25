@@ -1,10 +1,15 @@
 """Shared rendering helpers. Scenes print through out() so --svg can replay them."""
 
+import contextlib
 import os
+import shutil
+import signal
 import time
 
 from rich import box
 from rich.console import Console, Group
+from rich.live import Live
+from rich.live_render import LiveRender
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -18,6 +23,63 @@ KATA = "orange3"  # Kata colour
 
 console = Console()
 FRAME = []  # what is on screen at the end of the current scene
+# A scene's heading (title and cgroup line), drawn at the top of its live
+# view so the whole scene can be redrawn when the terminal is resized.
+HEADER = []
+_VIEW = {"live": False, "resized": False, "prompt": None}
+
+
+def _fit():
+    """Draw at most one line less than the window: the last line is kept
+    for the prompt, so showing it never scrolls the scene up."""
+    console.height = max(10, shutil.get_terminal_size().lines - 1)
+
+
+def _on_resize(signum, frame):
+    """Terminal resized: text on screen re-wraps, so redraw from scratch."""
+    if _VIEW["live"]:
+        _VIEW["resized"] = True  # the live view clears on its next redraw
+        return
+    # Waiting at the prompt: reprint the scene's last frame, cut to fit
+    # above the prompt line, and the prompt.
+    _fit()
+    console.clear()
+    console.print(LiveRender(Group(*FRAME), vertical_overflow="ellipsis"))
+    if _VIEW["prompt"]:
+        console.print(_VIEW["prompt"], end="")
+
+
+def watch_resize():
+    signal.signal(signal.SIGWINCH, _on_resize)
+
+
+@contextlib.contextmanager
+def scene_live(render, refresh_per_second=8):
+    """A scene's live view: its heading and body as one redrawable frame.
+
+    What the scene printed so far (its title) moves into HEADER and is drawn
+    inside the view; taller-than-the-terminal frames are cut at the bottom.
+    """
+    HEADER[:] = FRAME
+    FRAME.clear()
+    console.clear()
+    _VIEW["live"] = True
+    # When Live stops, it draws the frame once more with nothing cut off,
+    # which scrolls a scene taller than the window up (even when transient).
+    # So its last draw is empty, it erases itself, and the final frame is
+    # drawn below, cut to fit above the prompt line.
+    stopping = []
+    view = lambda: Text("") if stopping else render()  # noqa: E731
+    try:
+        with Live(console=console, refresh_per_second=refresh_per_second,
+                  get_renderable=view, transient=True) as live:
+            try:
+                yield live
+            finally:
+                stopping.append(True)
+    finally:
+        _VIEW["live"] = False
+        console.print(LiveRender(render(), vertical_overflow="ellipsis"))
 ACTIVITY = {"mode": "auto", "width": None}  # mode: auto | side | bottom | off
 
 
@@ -43,20 +105,25 @@ def main_width():
 
 
 def with_activity(main):
-    """Put the behind-the-scenes panel beside main, or below it if narrow."""
+    """The scene's heading, then main with the behind-the-scenes panel
+    beside it (or below it if the terminal is narrow)."""
+    _fit()
+    if _VIEW["resized"]:
+        _VIEW["resized"] = False
+        console.clear()
     mode, side_w = _layout()
     width = console.width
     if mode == "off":
-        return main
+        return Group(*HEADER, main)
     if mode == "side":
-        # Leave room for the scene title printed above the live view.
+        # Leave room for the heading above the panel.
         panel = activity.panel(height=max(12, console.height - 6), width=side_w)
         grid = Table.grid(padding=(0, 1))
         grid.add_column(width=width - side_w - 1)
         grid.add_column(width=side_w)
         grid.add_row(main, panel)
-        return grid
-    return Group(main, activity.panel(height=12, width=width))
+        return Group(*HEADER, grid)
+    return Group(*HEADER, main, activity.panel(height=12, width=width))
 
 
 def bar(value, vmax, width, color):
@@ -322,9 +389,13 @@ def ask_next(args, last=False, upcoming=None, note="", first=False):
         return "next"
     nxt = "finish" if last else "next scene"
     back = "" if first else " · [bold]b[/bold]: previous scene"
-    answer = console.input(
-        f"\n[{MUTED}]Enter: {nxt}{back} · [bold]r[/bold]: run this scene again "
-        "from a clean state · [bold]q[/bold]: quit[/] ").strip().lower()
+    prompt = (f"[{MUTED}]Enter: {nxt}{back} · [bold]r[/bold]: run this scene "
+              "again from a clean state · [bold]q[/bold]: quit[/] ")
+    _VIEW["prompt"] = prompt
+    try:
+        answer = console.input(prompt).strip().lower()
+    finally:
+        _VIEW["prompt"] = None
     choice = {"b": "back", "r": "again", "q": "quit"}.get(answer[:1], "next")
     # The first scene has no previous one: run it again instead.
     return "again" if first and choice == "back" else choice

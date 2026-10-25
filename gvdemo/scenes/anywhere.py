@@ -4,7 +4,6 @@ import time
 
 from rich import box
 from rich.console import Group
-from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -12,8 +11,8 @@ from rich.text import Text
 from ..colors import MUTED
 from ..hostmon import host_facts
 from ..runsc import make_bundle
-from ..ui import (FRAME, GV, KATA, console, fmt_ms, out, source_line,
-                  title, with_activity)
+from ..ui import (FRAME, GV, KATA, console, fmt_ms, out, scene_live,
+                  source_line, title, with_activity)
 
 
 def run(rs, ref, args, results):
@@ -66,7 +65,7 @@ def run(rs, ref, args, results):
     def render():
         return with_activity(body())
 
-    with Live(console=console, refresh_per_second=8, get_renderable=render):
+    with scene_live(render, refresh_per_second=8):
         b = make_bundle(rs.workdir, "anywhere",
                         "echo \"kernel: $(uname -sr)\"; dmesg | head -n 4")
         t0 = time.monotonic()

@@ -6,15 +6,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from rich.console import Group
-from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 from ..colors import MUTED
 from ..runsc import make_bundle, time_to_ready
-from ..ui import (FRAME, GV, KATA, bar, console, fmt_ms, histogram, out,
-                  main_width, percentile, source_line, title,
+from ..ui import (FRAME, GV, KATA, bar, console, fmt_ms, histogram, main_width,
+                  out, percentile, scene_live, source_line, title,
                   with_activity)
 
 
@@ -155,8 +154,7 @@ def run(rs, ref, args, results):
     def render():
         return with_activity(body())
 
-    with Live(console=console, refresh_per_second=20,
-              get_renderable=render) as live:
+    with scene_live(render, refresh_per_second=20) as live:
         t0 = time.monotonic()
         for i in range(args.runs):
             runs[i] = STARTING

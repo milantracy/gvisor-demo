@@ -6,7 +6,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 from rich import box
 from rich.console import Group
-from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -16,9 +15,9 @@ from ..activity import activity
 from ..hostmon import (LIMIT, Sampler, available_kib, cpu_capacity,
                        host_facts, wait_settled)
 from ..runsc import make_bundle, time_to_ready
-from ..ui import (FRAME, GV, KATA, bar, console, fmt_cpu, fmt_ms,
-                  line_chart, main_width, meter, millicores, out, percentile, source_line, tile, title,
-                  with_activity)
+from ..ui import (FRAME, GV, KATA, bar, console, fmt_cpu, fmt_ms, line_chart,
+                  main_width, meter, millicores, out, percentile, scene_live,
+                  source_line, tile, title, with_activity)
 
 
 TIMELINE_ROWS = 20  # the timeline grows up to this many lines, newest last
@@ -262,8 +261,7 @@ def run(rs, ref, args, results):
     results.setdefault("host", host_facts())
     sampler.start()
     try:
-        with Live(console=console, refresh_per_second=8,
-                  get_renderable=render) as live:
+        with scene_live(render, refresh_per_second=8) as live:
             ids = iter(range(args.density))
             probe()
             ev(f"baseline: host memory steady after {waited:.1f} s; startup "
