@@ -55,7 +55,10 @@ def run(rs, ref, args, results):
             parts.append(Text("Starting a gVisor sandbox on this host…",
                               style=MUTED))
         elif state["res"].returncode == 0:
-            parts.append(Panel(Text(state["res"].stdout.rstrip(), style="cyan"),
+            # Grey output, with gVisor's own boot line picked out.
+            output = Text(state["res"].stdout.rstrip(), style="grey62")
+            output.highlight_regex(r"(?m)^.*Starting gVisor.*$", "cyan")
+            parts.append(Panel(output,
                                title="[bright_white]Output from inside "
                                      "the sandbox[/]",
                                title_align="left", border_style="grey30"))

@@ -248,7 +248,7 @@ def histogram(values, width, height, color, marks=(), bins=20,
     rows = []
     for r in range(height):
         # Zero is at the bottom edge of the last row: "0" goes on the axis.
-        t = Text(f"{cmax if r == 0 else '':>4} ", style=MUTED)
+        t = Text(f"{cmax if r == 0 else '':>4} ", style="bright_white")
         t.append("┤" if r == 0 else "│", style="grey42")
         for cl, cs in zip(line[r], shade[r]):
             bits = cl | cs
@@ -275,8 +275,8 @@ def histogram(values, width, height, color, marks=(), bins=20,
         labels.append(" ")
         labels.append(value, style=mark_time_style)
         at = c + len(name) + 1 + len(value)
-    rows.append(Text("   0 ", style=MUTED) + Text("└", style="grey42") +
-                Text("".join(axis), style="grey42"))
+    rows.append(Text("   0 ", style="bright_white") +
+                Text("└" + "".join(axis), style="grey42"))
     # The fastest and slowest values, labelled, at the two ends of the axis.
     lo_t, hi_t = fmt_ms(lo), fmt_ms(hi)
     ends = Text("      ")

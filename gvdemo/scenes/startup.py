@@ -45,8 +45,7 @@ def kata_startup_ms(kref):
 def run(rs, ref, args, results):
     console.clear()
     out(title("Startup latency",
-              "Measured from `runsc run` until the sandbox is ready: the app "
-              "inside is running and has printed its first line"))
+              "Measured from starting a sandbox until it is ready"))
     b = make_bundle(rs.workdir, "startup", "echo ready")
     kref = ref.get("startup", {})
 
@@ -92,10 +91,10 @@ def run(rs, ref, args, results):
 
         # What the boxes mean, once for both panels.
         legend = Text.assemble(
-            ("▆▆", BOX["waiting"]), (" not started   ", "white"),
-            ("▆▆", BOX["starting"]), (" started   ", "white"),
-            ("▆▆", BOX["ready"]), (" ready   ", "white"),
-            ("▆▆", BOX["failed"]), (" failed", "white"))
+            ("▆▆", BOX["waiting"]), (" Not Started   ", "white"),
+            ("▆▆", BOX["starting"]), (" Started   ", "white"),
+            ("▆▆", BOX["ready"]), (" Ready   ", "white"),
+            ("▆▆", BOX["failed"]), (" Failed", "white"))
 
         # One at a time: the boxes, the wall time once all are ready, then
         # the latency histogram.
