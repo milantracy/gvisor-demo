@@ -11,8 +11,8 @@ from rich.text import Text
 from ..colors import MUTED
 from ..hostmon import host_facts
 from ..runsc import make_bundle
-from ..ui import (FRAME, GV, KATA, console, fmt_ms, out, scene_live,
-                  title, with_activity)
+from ..ui import (FRAME, GV, KATA, console, fmt_ms, out, scene_live, title,
+                  wait_to_start, with_activity)
 
 
 def run(rs, ref, args, results):
@@ -70,6 +70,7 @@ def run(rs, ref, args, results):
     def render():
         return with_activity(body())
 
+    wait_to_start(render)  # everything is prepared: start on Enter
     with scene_live(render, refresh_per_second=8):
         b = make_bundle(rs.workdir, "anywhere",
                         "echo \"kernel: $(uname -sr)\"; dmesg | head -n 4")

@@ -28,6 +28,9 @@ FRAME = []  # what is on screen at the end of the current scene
 # view so the whole scene can be redrawn when the terminal is resized.
 HEADER = []
 _VIEW = {"live": False, "resized": False, "prompt": None}
+# wait: each scene waits for Enter before it starts (off with --auto and
+# --kiosk, which run unattended).
+START = {"wait": True}
 
 
 def _fit():
@@ -446,6 +449,28 @@ def limit_banner():
 def source_line(ref):
     return Text(f"Kata source: {ref.get('source', 'n/a')}",
                 style="bright_white")
+
+
+def wait_to_start(render=None):
+    """Before a scene starts measuring, once everything that can be prepared
+    is ready: draw the scene's live view as it starts (render: heading,
+    body and behind-the-scenes panel, as scene_live draws it), cut to fit
+    above the prompt line, and wait for Enter, so the presenter can
+    introduce it. q quits, like Ctrl-C."""
+    if not START["wait"]:
+        return
+    if render is not None:
+        HEADER[:] = FRAME
+        console.clear()
+        console.print(LiveRender(render(), vertical_overflow="ellipsis"))
+    prompt = ("[grey50]Enter: start this scene · [bold]q[/bold]: quit[/] ")
+    _VIEW["prompt"] = prompt
+    try:
+        answer = console.input(prompt).strip().lower()
+    finally:
+        _VIEW["prompt"] = None
+    if answer[:1] == "q":
+        raise KeyboardInterrupt
 
 
 def ask_next(args, last=False, upcoming=None, note="", first=False):

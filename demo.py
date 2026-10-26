@@ -28,8 +28,8 @@ from gvdemo.hostmon import limit_node, remove_cgroup  # noqa: E402
 from gvdemo.runsc import Runsc  # noqa: E402
 from gvdemo.scenes import SCENES  # noqa: E402
 from gvdemo.activity import activity  # noqa: E402
-from gvdemo.ui import (ACTIVITY, FRAME, HEADER, TITLE, ask_next,  # noqa: E402
-                       console, watch_resize)
+from gvdemo.ui import (ACTIVITY, FRAME, HEADER, START, TITLE,  # noqa: E402
+                       ask_next, console, watch_resize)
 
 
 def parse_size(text):
@@ -127,6 +127,7 @@ def main():
         args.parallel = args.step
     if args.kiosk:
         args.auto = args.kiosk_delay
+    START["wait"] = not args.auto
     ACTIVITY["mode"] = args.activity
     TITLE["large"] = args.title_size == "large"
     ACTIVITY["width"] = args.activity_width

@@ -17,7 +17,7 @@ from ..hostmon import (LIMIT, Sampler, available_kib, cpu_capacity,
 from ..runsc import make_bundle, time_to_ready
 from ..ui import (FRAME, GV, KATA, bar, box_title, console, fmt_cpu, fmt_ms,
                   line_chart, main_width, millicores, out, percentile,
-                  scene_live, title, with_activity)
+                  scene_live, title, wait_to_start, with_activity)
 
 
 PHASES = {"starting": "Starting sandboxes", "all idle": "All idle",
@@ -281,6 +281,9 @@ def run(rs, ref, args, results):
             probes.append((state["n"], ms, time.monotonic() - sampler.t0))
 
     results.setdefault("host", host_facts())
+    # Bundles made, memory settled: start on Enter. The sampler starts after
+    # it, so the charts' clock starts with the scene.
+    wait_to_start(render)
     sampler.start()
     try:
         with scene_live(render, refresh_per_second=8) as live:

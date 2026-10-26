@@ -13,7 +13,7 @@ from ..hostmon import LIMIT, cpu_busy_s, cpu_capacity
 from ..runsc import make_bundle, time_to_ready
 from ..ui import (FRAME, GV, bar, big_number, box_title, console, fmt_ms,
                   main_width, meter, out, percentile, scene_live, title,
-                  with_activity)
+                  wait_to_start, with_activity)
 
 
 def workers(n):
@@ -240,6 +240,7 @@ def run(rs, ref, args, results):
                 "destroy": st["destroy"], "life": st["life"],
                 "cpu": (b1 - b0) / args.churn_seconds}
 
+    wait_to_start(render)  # everything is prepared: start on Enter
     with scene_live(render, refresh_per_second=8) as live:
         for i, n in enumerate(levels):
             activity.note(f"level {n}: {n} workers for {args.churn_seconds:g} s")

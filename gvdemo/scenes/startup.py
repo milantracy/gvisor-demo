@@ -14,7 +14,7 @@ from ..colors import BOX, HIST, HIST_FILL, MUTED
 from ..runsc import make_bundle, time_to_ready
 from ..ui import (FRAME, GV, KATA, bar, console, fmt_ms, histogram, main_width,
                   out, percentile, scene_live, source_line, title,
-                  with_activity)
+                  wait_to_start, with_activity)
 
 
 TIME = "bold cyan"  # times in the statistics lines
@@ -149,6 +149,7 @@ def run(rs, ref, args, results):
     def render():
         return with_activity(body())
 
+    wait_to_start(render)  # everything is prepared: start on Enter
     with scene_live(render, refresh_per_second=20) as live:
         t0 = time.monotonic()
         for i in range(args.runs):

@@ -15,7 +15,7 @@ from ..activity import activity
 from ..hostmon import drop_caches
 from ..runsc import make_bundle
 from ..ui import (FRAME, GV, bar, box_title, console, fmt_ms, fmt_spread, out,
-                  scene_live, title, with_activity)
+                  scene_live, title, wait_to_start, with_activity)
 
 TICK_S = 0.5  # the app counts one "request" per tick
 
@@ -183,6 +183,7 @@ def run(rs, ref, args, results):
         rows[name]["ms"] = (rows[name]["t_ready"] - t0) * 1000
         return rows[name]["ms"]
 
+    wait_to_start(render)  # everything is prepared: start on Enter
     with scene_live(render, refresh_per_second=10) as live:
         t_scene = time.monotonic()
 
