@@ -11,11 +11,12 @@ from rich.table import Table
 from rich.text import Text
 
 from ..activity import activity
+from ..colors import BOX, HIST
 from ..hostmon import (LIMIT, Sampler, available_kib, cpu_capacity,
                        host_facts, memory_use, wait_settled)
 from ..runsc import make_bundle, time_to_ready
 from ..ui import (FRAME, GV, KATA, bar, box_title, console, fmt_cpu, fmt_ms,
-                  line_chart, main_width, meter, millicores, out, percentile,
+                  line_chart, main_width, millicores, out, percentile,
                   scene_live, title, with_activity)
 
 
@@ -57,25 +58,41 @@ def run(rs, ref, args, results):
         n = p.get("n", 0)
         per = lambda k: p[k] / n if n and p.get(k) is not None else 0
         dirty = per("dirty_mib")
-        per_host = per("host_mib")
         el = state["launch_s"]
         rate = f"{state['n'] / el:.0f}/s" if el else "…"
         W = main_width()
         ncpu = cpu_capacity()
 
-        # 1. Sandboxes up and running, as progress toward the target.
-        head = Table.grid(padding=(0, 2), expand=True)
-        head.add_column(no_wrap=True)
-        head.add_column(ratio=1)
-        head.add_column(no_wrap=True)
+        # 1. Sandboxes up and running: one small square per sandbox launched
+        # so far, coloured as in startup latency, so the grid grows live.
+        # Nothing shows where it will end: that is not known in advance, the
+        # ramp just stops when memory use reaches the mark.
+        launched = [x for x in boxes_state if x != "waiting"]
+        cols = max(10, W - 4)
+        grid = Text(no_wrap=True)
+        for i, st in enumerate(launched):
+            if i and i % cols == 0:
+                grid.append("\n")
+            grid.append("▪", style=BOX[st])
+        legend = Text()
+        for key, word in (("starting", "Starting"), ("ready", "Running"),
+                          ("failed", "Failed")):
+            legend.append("▪ ", style=BOX[key])
+            legend.append(f"{word}   ", style="bright_white")
+        legend.append(f"   ·   ramp {rate}, {args.parallel} sandbox starts at "
+                      "once", style="bright_white")
+        legend.no_wrap, legend.overflow = True, "ellipsis"
+        head = Table.grid(expand=True)
+        head.add_column()
+        head.add_column(justify="right", no_wrap=True)
+        used, cap = state.get("mem_now") or memory_use()
         head.add_row(Text(PHASES[state["phase"]], style="bold white"),
-                     meter(n / state.get("target", args.density),
-                           max(10, W - 50), GV),
-                     Text(f"{n:,} / {state.get('target', args.density):,} "
-                          "running", style="bold white"))
-        head.add_row("", Text(
-            f"ramp {rate}, {args.parallel} sandbox starts at once",
-            style="bright_white", no_wrap=True, overflow="ellipsis"), "")
+                     Text.assemble(
+                         (f"{n:,} running", "bold white"),
+                         (f"   ·   cgroup memory {used / 2**30:.1f} of "
+                          f"{cap / 2**30:g} GiB, stops at "
+                          f"{args.density_mem:g}%", "bright_white")))
+        head = Group(head, grid, legend)
         progress = Panel(head, border_style="grey30", title_align="left",
                          title=box_title(
                              f"Sandboxes up and running: up to "
@@ -105,14 +122,43 @@ def run(rs, ref, args, results):
             if dirty:
                 lines.insert(0, Text(f"{kata_mib / dirty:.0f}× less private "
                                      "memory per sandbox", style="bold gold1"))
-            if per_host:
-                lim = results["host"].get("limit_mem_gib")
-                mem_gib = lim or results["host"]["mem_gib"]
+            # How many fit at 90% of the memory allowed, from what each
+            # sandbox has added to the same count the ramp stops on (the
+            # cgroup's memory.current), so the two agree and other host
+            # activity can't skew it. Kept from the last reading with
+            # sandboxes running, since the final frame comes after teardown.
+            if n and "mem0" in state and state["phase"] in ("starting",
+                                                           "all idle"):
+                used, cap = memory_use()
+                each = (used - state["mem0"]) / n / 2**20
+                if each > 0:
+                    state["fits"] = (cap, int(cap / 2**20 * 0.9 / each))
+                    state["each_cg"] = each
+            if "fits" in state:
+                cap, fits = state["fits"]
                 lines.append(Text.assemble(
-                    (f"This {mem_gib:g} GiB {'node' if lim else 'host'} fits ≈ "
-                     f"{int(mem_gib * 1024 * 0.9 / per_host):,} gVisor vs ≈ "
-                     f"{int(mem_gib * 1024 * 0.9 / kata_mib):,} Kata", "white"),
-                    ("  (memory only)", "bright_white")))
+                    (f"This {cap / 2**30:g} GiB "
+                     f"{'node' if LIMIT['mem_bytes'] else 'host'} fits ≈ ",
+                     "white"),
+                    (f"{fits:,} gVisor", f"bold {GV}"), (" vs ≈ ", "white"),
+                    (f"{int(cap / 2**20 * 0.9 / kata_mib):,} Kata",
+                     f"bold {KATA}"),
+                    ("  at 90% of its memory", "bright_white")))
+        # The same cost three ways, said openly: private memory (the Kata
+        # source's metric); what the cgroup counts, which adds the kernel
+        # memory billed to it (page tables, kernel stacks, slab); and what
+        # the host lost, which adds kernel memory billed to no cgroup.
+        host_each = p["host_mib"] / n if n and p.get("host_mib") else 0
+        if dirty and "each_cg" in state and host_each:
+            say = "bright_white"
+            lines.append(Text.assemble(
+                ("Each sandbox: ", say),
+                (f"{dirty:.1f} MiB", "bold white"), (" private · ", say),
+                (f"{state['each_cg']:.1f} MiB", "bold white"),
+                (" with kernel memory (what the limit counts) · ", say),
+                (f"{host_each:.1f} MiB", "bold white"),
+                (" of host RAM (some kernel memory is outside the cgroup)",
+                 say)))
         headline = Panel(Group(*lines), border_style="grey30",
                          title=box_title("Memory per sandbox"),
                          title_align="left")
@@ -121,7 +167,8 @@ def run(rs, ref, args, results):
         t_max = max([series[-1]["t"] if series else 0] +
                     [x[2] for x in probes] + [1])
         metrics = [
-            ("Host RAM used", [(x["t"], x["host_mib"]) for x in series],
+            ("Host RAM used (whole host)",
+             [(x["t"], x["host_mib"]) for x in series],
              lambda v: f"{v:,.0f} MiB"),
             (f"{'Node CPU, limited to' if LIMIT['cgroup'] else 'Host CPU, of'} "
              f"{ncpu} cores", [(x["t"], x["host_cores"]) for x in series],
@@ -141,7 +188,7 @@ def run(rs, ref, args, results):
             peak = max(v for _, v in pts) if pts else None
             # No batch ticks: with dozens of batches they merge into a comb.
             # Only the "all idle" mark (┊) is drawn.
-            rows = line_chart(pts, t_max, cw, 3, GV, fmt,
+            rows = line_chart(pts, t_max, cw, 3, HIST, fmt,
                               idle_t=state["idle_t"], ylab_w=ylab_w)
             head = Text.assemble((name, "bright_white"), ("   ", ""),
                                  (fmt(now) if pts else "…",
@@ -198,10 +245,20 @@ def run(rs, ref, args, results):
         return Group(*parts)
 
     def render():
-        return with_activity(body())
+        # One square per sandbox needs the rows the panel would take below.
+        return with_activity(body(), below=False)
+
+    boxes_state = []  # per sandbox, by index: waiting/starting/ready/failed
 
     def start(cid):
-        rs.call("run", "--bundle", str(b), "-detach", cid)
+        i = int(cid[1:])
+        boxes_state[i] = "starting"
+        try:
+            rs.call("run", "--bundle", str(b), "-detach", cid)
+        except Exception:
+            boxes_state[i] = "failed"
+            raise
+        boxes_state[i] = "ready"
 
     events = []  # (seconds on the charts' clock, message), for the results
 
@@ -228,6 +285,7 @@ def run(rs, ref, args, results):
     try:
         with scene_live(render, refresh_per_second=8) as live:
             ids = iter(range(args.density))
+            boxes_state.extend(["waiting"] * args.density)
             probe()
             ev(f"baseline: host memory steady after {waited:.1f} s; startup "
                f"latency on the empty host "
@@ -240,17 +298,16 @@ def run(rs, ref, args, results):
             # each batch, the memory each sandbox has taken so far predicts
             # where the batch would end; a batch that would pass the mark is
             # cut short, so the ramp stops just under it, never near an OOM.
-            used0 = memory_use()[0]
+            state["mem0"] = used0 = memory_use()[0]
             with ThreadPoolExecutor(args.parallel) as ex:
                 while state["n"] < args.density:
                     used, cap = memory_use()
                     size = min(args.step, args.density - state["n"])
                     if state["n"]:
                         each = max(1, (used - used0) / state["n"])
-                        size = min(size, int(
-                            (cap * args.density_mem / 100 - used) / each))
+                        room = int((cap * args.density_mem / 100 - used) / each)
+                        size = min(size, room)
                     if size < 1:
-                        state["target"] = state["n"]
                         ev(f"memory use {used / 2**30:.1f} GiB, "
                            f"{used / cap:.0%} of {cap / 2**30:g} GiB: "
                            f"stopping at {state['n']:,} sandboxes")
@@ -303,6 +360,7 @@ def run(rs, ref, args, results):
             ev(msg)
             # Stop sampling first, so the results describe the full host.
             sampler.stop()
+            state["mem_now"] = memory_use()  # the final frame comes later
             state["phase"] = "tearing down"
             activity.note(f"tearing down {state['n']} sandboxes")
             t0 = time.monotonic()

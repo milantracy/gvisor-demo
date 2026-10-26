@@ -10,7 +10,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from ..colors import MUTED
+from ..colors import BOX, HIST, HIST_FILL, MUTED
 from ..runsc import make_bundle, time_to_ready
 from ..ui import (FRAME, GV, KATA, bar, console, fmt_ms, histogram, main_width,
                   out, percentile, scene_live, source_line, title,
@@ -20,8 +20,6 @@ from ..ui import (FRAME, GV, KATA, bar, console, fmt_ms, histogram, main_width,
 TIME = "bold cyan"  # times in the statistics lines
 LABEL = "white"     # the words around them
 STARTING = "starting"  # a sandbox launched but not ready yet
-# Box colours by sandbox state. Amber, not orange: orange is Kata's colour.
-BOX = {"waiting": "grey30", "starting": "yellow3", "ready": GV, "failed": "red"}
 
 
 def state_of(x):
@@ -33,8 +31,6 @@ def state_of(x):
     return "failed" if x is False else "ready"
 
 
-HIST = "deep_sky_blue1"       # histogram line: not the boxes' green
-HIST_FILL = "deep_sky_blue4"  # and its fill
 
 
 def kata_startup_ms(kref):

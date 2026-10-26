@@ -105,16 +105,18 @@ def main_width():
     return console.width - side_w - 1 if mode == "side" else console.width
 
 
-def with_activity(main):
+def with_activity(main, below=True):
     """The scene's heading, then main with the behind-the-scenes panel
-    beside it (or below it if the terminal is narrow)."""
+    beside it (or below it if the terminal is narrow). below=False leaves
+    the panel out rather than put it below, for a scene that needs the rows;
+    beside the scene it takes no rows, so it stays."""
     _fit()
     if _VIEW["resized"]:
         _VIEW["resized"] = False
         console.clear()
     mode, side_w = _layout()
     width = console.width
-    if mode == "off":
+    if mode == "off" or (mode == "bottom" and not below):
         return Group(*HEADER, main)
     if mode == "side":
         # Leave room for the heading above the panel.
