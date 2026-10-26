@@ -11,7 +11,7 @@ from rich.text import Text
 from ..activity import activity
 from ..hostmon import LIMIT, cpu_busy_s, cpu_capacity
 from ..runsc import make_bundle, time_to_ready
-from ..ui import (FRAME, GV, bar, big_number, console, fmt_ms,
+from ..ui import (FRAME, GV, bar, big_number, box_title, console, fmt_ms,
                   main_width, meter, out, percentile, scene_live, title,
                   with_activity)
 
@@ -190,8 +190,8 @@ def run(rs, ref, args, results):
                 f"second with {workers(r['level'])} (≈ {r['rate'] * 60:,.0f} "
                 "per minute)", style="bold white"), Text("")]
         return Panel(Group(*lines), border_style="grey30", title_align="left",
-                     title=Text("Sandboxes created and destroyed per second "
-                                "(p50 times)", style="bright_white"),
+                     title=box_title("Sandboxes created and destroyed per "
+                                     "second (p50 times)"),
                      subtitle=f"limited to {ncpu} CPUs" if LIMIT["cpus"] else
                      f"host has {ncpu} vCPUs", subtitle_align="right")
 

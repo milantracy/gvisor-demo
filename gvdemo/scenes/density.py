@@ -10,17 +10,15 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from ..colors import MUTED
 from ..activity import activity
 from ..hostmon import (LIMIT, Sampler, available_kib, cpu_capacity,
-                       host_facts, wait_settled)
+                       host_facts, memory_use, wait_settled)
 from ..runsc import make_bundle, time_to_ready
-from ..ui import (FRAME, GV, KATA, bar, console, fmt_cpu, fmt_ms, line_chart,
-                  main_width, meter, millicores, out, percentile, scene_live,
-                  source_line, tile, title, with_activity)
+from ..ui import (FRAME, GV, KATA, bar, box_title, console, fmt_cpu, fmt_ms,
+                  line_chart, main_width, meter, millicores, out, percentile,
+                  scene_live, title, with_activity)
 
 
-TIMELINE_ROWS = 20  # the timeline grows up to this many lines, newest last
 PHASES = {"starting": "Starting sandboxes", "all idle": "All idle",
           "tearing down": "Tearing down", "done": "Finished"}
 
@@ -28,7 +26,7 @@ PHASES = {"starting": "Starting sandboxes", "all idle": "All idle",
 def run(rs, ref, args, results):
     console.clear()
     out(title("Density",
-              "Pack idle sandboxes onto one host and watch what they cost"))
+              "Pack sandboxes onto one host and watch what they cost"))
     b = make_bundle(rs.workdir, "density", "exec sleep 1000000")
     kref = ref.get("density", {})
     kata_mib = kref.get("value_mib")
@@ -54,7 +52,7 @@ def run(rs, ref, args, results):
                       include=lambda cid: not cid.startswith("probe"))
 
     def body():
-        series, boxes, interval, scan = sampler.snapshot()
+        series, boxes, _, scan = sampler.snapshot()
         p = series[-1] if series else {}
         n = p.get("n", 0)
         per = lambda k: p[k] / n if n and p.get(k) is not None else 0
@@ -62,46 +60,28 @@ def run(rs, ref, args, results):
         per_host = per("host_mib")
         el = state["launch_s"]
         rate = f"{state['n'] / el:.0f}/s" if el else "…"
-        last = probes[-1][1] if probes else None
         W = main_width()
         ncpu = cpu_capacity()
 
         # 1. Sandboxes up and running, as progress toward the target.
-        procs, threads = p.get("procs", 0), p.get("threads", 0)
         head = Table.grid(padding=(0, 2), expand=True)
         head.add_column(no_wrap=True)
         head.add_column(ratio=1)
         head.add_column(no_wrap=True)
         head.add_row(Text(PHASES[state["phase"]], style="bold white"),
-                     meter(n / args.density, max(10, W - 50), GV),
-                     Text(f"{n:,} / {args.density:,} running", style="bold white"))
+                     meter(n / state.get("target", args.density),
+                           max(10, W - 50), GV),
+                     Text(f"{n:,} / {state.get('target', args.density):,} "
+                          "running", style="bold white"))
         head.add_row("", Text(
-            f"ramp {rate}, {args.parallel} at once · {procs:,} host processes, "
-            f"{threads:,} threads" + (f" ({procs / n:.0f} and {threads / n:.0f} "
-                                      "per sandbox)" if n else ""),
-            style=MUTED, no_wrap=True, overflow="ellipsis"), "")
+            f"ramp {rate}, {args.parallel} sandbox starts at once",
+            style="bright_white", no_wrap=True, overflow="ellipsis"), "")
         progress = Panel(head, border_style="grey30", title_align="left",
-                         title="Sandboxes up and running")
-
-        # 2. KPI row. Values in ink; colour only marks the latest point.
-        cols = 3 if W >= 90 else 1
-        tiles = [
-            tile("Private memory, each", f"{dirty:.1f} MiB",
-                 f"PSS {per('pss_mib'):.1f} · host {per_host:.1f} MiB"),
-            tile("CPU per sandbox, now", fmt_cpu(per("cpu_cores")),
-                 f"{'node' if LIMIT['cpus'] else 'host'} peak "
-                 f"{fmt_cpu(max(x['host_cores'] for x in series))} of {ncpu}"
-                 if series else ""),
-            tile("Startup latency",
-                 fmt_ms(statistics.median(last)) if last else "…",
-                 f"empty host: {fmt_ms(statistics.median(probes[0][1]))}"
-                 if probes else ""),
-        ]
-        kpi = Table.grid(expand=True, padding=(0, 1))
-        for _ in range(cols):
-            kpi.add_column(ratio=1)
-        for i in range(0, len(tiles), cols):
-            kpi.add_row(*tiles[i:i + cols])
+                         title=box_title(
+                             f"Sandboxes up and running: up to "
+                             f"{args.density:,}, or until memory use reaches "
+                             f"{args.density_mem:g}% of the "
+                             f"{'limit' if LIMIT['mem_bytes'] else 'host'}"))
 
         # 3. The headline: memory per sandbox against the Kata reference.
         # It shares a row with the per-sandbox table.
@@ -114,16 +94,17 @@ def run(rs, ref, args, results):
         vmax = max(kata_mib or 0, dirty, 1)
         cmp.add_row(Text("gVisor", style="bold white"), bar(dirty, vmax, bw, GV),
                     Text.assemble((f"{dirty:.1f} MiB", "bold white"),
-                                  ("  measured live", MUTED)))
+                                  ("  measured live", "bright_white")))
         lines = [cmp]
         if kata_mib:
             cmp.add_row(Text("Kata", style="bold white"),
                         bar(kata_mib, vmax, bw, KATA),
                         Text.assemble((f"{kata_mib:g} {kref.get('unit', 'MiB')}",
-                                       "bold white"), ("  published", MUTED)))
+                                       "bold white"),
+                                      ("  published", "bright_white")))
             if dirty:
                 lines.insert(0, Text(f"{kata_mib / dirty:.0f}× less private "
-                                     "memory per sandbox", style="bold white"))
+                                     "memory per sandbox", style="bold gold1"))
             if per_host:
                 lim = results["host"].get("limit_mem_gib")
                 mem_gib = lim or results["host"]["mem_gib"]
@@ -131,13 +112,10 @@ def run(rs, ref, args, results):
                     (f"This {mem_gib:g} GiB {'node' if lim else 'host'} fits ≈ "
                      f"{int(mem_gib * 1024 * 0.9 / per_host):,} gVisor vs ≈ "
                      f"{int(mem_gib * 1024 * 0.9 / kata_mib):,} Kata", "white"),
-                    ("  (memory only)", MUTED)))
-            src = source_line(kref)
-            src.no_wrap, src.overflow = True, "ellipsis"  # full in scorecard
-            lines.append(src)
+                    ("  (memory only)", "bright_white")))
         headline = Panel(Group(*lines), border_style="grey30",
-                         title="Memory per idle sandbox (Private_Dirty, the "
-                               "Kata source's metric)", title_align="left")
+                         title=box_title("Memory per sandbox"),
+                         title_align="left")
 
         # 4. History: one panel per metric, all on the same time axis.
         t_max = max([series[-1]["t"] if series else 0] +
@@ -161,11 +139,15 @@ def run(rs, ref, args, results):
             cw = max(10, pw - 4 - ylab_w - 1)
             now = pts[-1][1] if pts else None
             peak = max(v for _, v in pts) if pts else None
-            rows = line_chart(pts, t_max, cw, 4, GV, fmt, state["batches"],
-                              state["idle_t"], ylab_w=ylab_w)
-            head = Text.assemble((name, "white"), ("   ", ""),
-                                 (fmt(now) if pts else "…", "bold white"))
-            sub = Text(f"peak {fmt(peak)}" if pts else "", style=MUTED)
+            # No batch ticks: with dozens of batches they merge into a comb.
+            # Only the "all idle" mark (┊) is drawn.
+            rows = line_chart(pts, t_max, cw, 3, GV, fmt,
+                              idle_t=state["idle_t"], ylab_w=ylab_w)
+            head = Text.assemble((name, "bright_white"), ("   ", ""),
+                                 (fmt(now) if pts else "…",
+                                  "bold bright_white"))
+            sub = Text(f"peak {fmt(peak)}" if pts else "",
+                       style="bright_white")
             return Panel(Group(*rows), border_style="grey30", title=head,
                          title_align="left", subtitle=sub,
                          subtitle_align="right", width=pw)
@@ -176,60 +158,43 @@ def run(rs, ref, args, results):
         panels = [chart(*m) for m in metrics]
         charts.add_row(panels[0], panels[1])
         charts.add_row(panels[2], panels[3])
-        legend = Text(f"┬ batch start   ┊ all idle   sampled every "
-                      f"{interval:.2f} s", style=MUTED)
-        over_time = Group(charts, legend)
 
-        dist = Table(box=box.SIMPLE_HEAD, header_style=MUTED,
+        dist = Table(box=box.SIMPLE_HEAD, header_style="bright_white",
                      pad_edge=False, expand=True, show_edge=False)
-        dist.add_column("", style=MUTED, no_wrap=True)
+        dist.add_column("", style="bright_white", no_wrap=True)
         for h in ("min", "p50", "p95", "max"):
             dist.add_column(h, justify="right", style="white", no_wrap=True)
-        heaviest = ""
-        for label, key in (("private", "dirty_kib"), ("PSS", "pss_kib")):
-            mem = sorted((v[key] / 1024, c) for c, v in boxes.items())
-            if mem:
-                m = [x[0] for x in mem]
+        for label, key in (("private, MiB", "dirty_kib"),
+                           ("PSS, MiB", "pss_kib")):
+            m = sorted(v[key] / 1024 for v in boxes.values())
+            if m:
                 dist.add_row(label, *(f"{v:.1f}" for v in (
                     m[0], percentile(m, 50), percentile(m, 95), m[-1])))
-                if key == "dirty_kib":
-                    heaviest = f"heaviest: {mem[-1][1]} ({mem[-1][0]:.1f} MiB)"
-        c = sorted(v["cpu_cores"] for v in boxes.values()
-                   if v["cpu_cores"] is not None)
-        if c:
-            dist.add_row("CPU, mcores", *(millicores(v) for v in (
-                c[0], percentile(c, 50), percentile(c, 95), c[-1])))
         used = sorted(v["cpu_ms"] for v in boxes.values())
         if used:
             dist.add_row("CPU used, ms", *(f"{v:.0f}" for v in (
                 used[0], percentile(used, 50), percentile(used, 95),
                 used[-1])))
-        if boxes:
-            th = sorted(v["threads"] for v in boxes.values())
-            dist.add_row("threads", *(f"{v:.0f}" for v in (
-                th[0], percentile(th, 50), percentile(th, 95), th[-1])))
-        each = Panel(Group(dist, Text(heaviest + "   memory in MiB",
-                                      style=MUTED)),
-                     border_style="grey30", title_align="left",
-                     title=f"Each of {len(boxes)} sandboxes, measured alone")
+        each = Panel(dist, border_style="grey30", title_align="left",
+                     title=box_title(f"Each of {len(boxes):,} sandboxes, "
+                                     "measured alone"))
 
+        # The two boxes side by side, as tall as the taller one.
+        tall = max(len(console.render_lines(p, console.options.update_width(w),
+                                            pad=False))
+                   for p, w in ((headline, left_w), (each, W - left_w - 1)))
+        headline.height = each.height = tall
         middle = Table.grid(expand=True, padding=(0, 1))
         middle.add_column(width=left_w)
         middle.add_column(ratio=1)
         middle.add_row(headline, each)
 
-        # 5. Timeline: what happened, in words, on the charts' clock.
-        shown = events[-TIMELINE_ROWS:]
-        tl = Text("\n".join(f"{t:6.1f} s  {m}" for t, m in shown) or "…",
-                  style="white", no_wrap=True, overflow="ellipsis")
-        timeline = Panel(tl, border_style="grey30", title="Timeline",
-                         title_align="left")
-
-        parts = [progress, kpi, middle, over_time, timeline]
+        parts = [middle, charts, progress]
         if not settled:
             parts.append(Text("Host memory was still moving when the baseline "
                               "was taken: host RAM figures are less exact.",
                               style="yellow"))
+
         return Group(*parts)
 
     def render():
@@ -238,7 +203,7 @@ def run(rs, ref, args, results):
     def start(cid):
         rs.call("run", "--bundle", str(b), "-detach", cid)
 
-    events = []  # (seconds on the charts' clock, message)
+    events = []  # (seconds on the charts' clock, message), for the results
 
     def ev(msg):
         events.append((time.monotonic() - sampler.t0, msg))
@@ -270,10 +235,27 @@ def run(rs, ref, args, results):
                if probes else f"baseline after {waited:.1f} s")
             ram = host_mib()
             live.update(render())
+            # Stop at --density sandboxes, or earlier at --density-mem
+            # percent of the memory allowed, whichever comes first. Before
+            # each batch, the memory each sandbox has taken so far predicts
+            # where the batch would end; a batch that would pass the mark is
+            # cut short, so the ramp stops just under it, never near an OOM.
+            used0 = memory_use()[0]
             with ThreadPoolExecutor(args.parallel) as ex:
                 while state["n"] < args.density:
-                    batch = [f"d{next(ids):05d}" for _ in
-                             range(min(args.step, args.density - state["n"]))]
+                    used, cap = memory_use()
+                    size = min(args.step, args.density - state["n"])
+                    if state["n"]:
+                        each = max(1, (used - used0) / state["n"])
+                        size = min(size, int(
+                            (cap * args.density_mem / 100 - used) / each))
+                    if size < 1:
+                        state["target"] = state["n"]
+                        ev(f"memory use {used / 2**30:.1f} GiB, "
+                           f"{used / cap:.0%} of {cap / 2**30:g} GiB: "
+                           f"stopping at {state['n']:,} sandboxes")
+                        break
+                    batch = [f"d{next(ids):05d}" for _ in range(size)]
                     state["batches"].append(time.monotonic() - sampler.t0)
                     activity.note(f"batch: start {len(batch)} sandboxes, "
                                   f"{args.parallel} at a time")
@@ -289,9 +271,10 @@ def run(rs, ref, args, results):
                     state["n"] += len(batch)
                     probe()
                     now = host_mib()
-                    ev(f"batch {len(state['batches'])}: +{len(batch)} sandboxes "
-                       f"in {fmt_ms(took * 1000)} → {state['n']} running · host "
-                       f"RAM {now:,.0f} MiB (+{now - ram:,.0f}) · startup "
+                    ev(f"batch {len(state['batches'])}: +{len(batch)} "
+                       f"sandboxes in {fmt_ms(took * 1000)} → {state['n']} "
+                       f"running · host RAM {now:,.0f} MiB "
+                       f"(+{now - ram:,.0f}) · startup "
                        f"{fmt_ms(statistics.median(probes[-1][1]))}")
                     ram = now
             state["phase"] = "all idle"

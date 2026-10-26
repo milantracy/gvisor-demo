@@ -86,6 +86,16 @@ def cpu_capacity():
     return LIMIT["cpus"] or os.cpu_count()
 
 
+def memory_use():
+    """(bytes used, bytes allowed): the limited group's memory.current and
+    memory.max, or the whole host's used and total RAM."""
+    if LIMIT["cgroup"] and LIMIT["mem_bytes"]:
+        cur = (CGROUP_ROOT / LIMIT["cgroup"] / "memory.current").read_text()
+        return int(cur), LIMIT["mem_bytes"]
+    mi = meminfo_kib()
+    return (mi["MemTotal"] - available_kib()) * 1024, mi["MemTotal"] * 1024
+
+
 def cpu_busy_s():
     """CPU seconds used so far: by the limited group, or by the whole host."""
     if LIMIT["cgroup"]:

@@ -67,7 +67,12 @@ def main():
     ap.add_argument("--restores", "--clones", dest="clones", type=int,
                     default=10, help="checkpoint/restore: copies restored "
                                      "at once from one image")
-    ap.add_argument("--density", type=int, default=300, help="sandboxes")
+    ap.add_argument("--density", type=int, default=3000,
+                    help="density: stop at this many sandboxes, or earlier "
+                         "at --density-mem")
+    ap.add_argument("--density-mem", type=float, default=50, metavar="PCT",
+                    help="density: stop once memory use reaches PCT%% of the "
+                         "memory limit (or of host RAM with --no-limit)")
     ap.add_argument("--step", type=int, default=20, help="sandboxes per batch")
     ap.add_argument("--parallel", type=int, default=None,
                     help="density starts at the same time (default: --step, "
@@ -81,8 +86,8 @@ def main():
     ap.add_argument("--cpus", type=int, default=16, metavar="N",
                     help="limit all sandboxes to N CPUs, like a smaller node "
                          "(default 16)")
-    ap.add_argument("--memory", default="64G", metavar="SIZE",
-                    help="limit all sandboxes to SIZE of memory (default 64G)")
+    ap.add_argument("--memory", default="32G", metavar="SIZE",
+                    help="limit all sandboxes to SIZE of memory (default 32G)")
     ap.add_argument("--no-limit", action="store_true",
                     help="no cgroup limit: sandboxes may use the whole host")
     ap.add_argument("--title-size", choices=["large", "normal"],

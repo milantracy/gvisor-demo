@@ -145,7 +145,7 @@ def time_axis(width, t_max, marks, idle_t=None):
         line[col(idle_t)] = "┊"
     axis = Text("".join(line), style="grey42")
     end = f"{t_max:.0f} s"
-    labels = Text("0 s" + end.rjust(width - 3), style=MUTED)
+    labels = Text("0 s" + end.rjust(width - 3), style="bright_white")
     return axis, labels
 
 
@@ -177,7 +177,9 @@ def line_chart(points, t_max, width, height, color, fmt, marks=(),
     for x, v in enumerate(cols):
         if v is None:
             continue
-        y = round(v / vmax * (ys - 1))
+        # The chart starts at zero; a value below it (host RAM can dip under
+        # the baseline when other memory is freed) is drawn on the zero line.
+        y = max(0, min(ys - 1, round(v / vmax * (ys - 1))))
         # Join to the previous point with a vertical run, so the line is
         # continuous through jumps.
         lo, hi = (y, y) if prev is None else (min(prev, y), max(prev, y))
@@ -189,13 +191,13 @@ def line_chart(points, t_max, width, height, color, fmt, marks=(),
         # Zero is drawn at the bottom edge of the last row, so "0" goes on
         # the axis line below it, not beside that row.
         label = fmt(vmax) if r == 0 else ""
-        t = Text(label.rjust(ylab_w), style=MUTED)
+        t = Text(label.rjust(ylab_w), style="bright_white")
         t.append("┤" if r == 0 else "│", style="grey42")
         t.append("".join(chr(0x2800 + b) if b else " " for b in cells[r]),
                  style=color)
         rows.append(t)
     axis, labels = time_axis(width, t_max, marks, idle_t)
-    rows.append(Text("0".rjust(ylab_w), style=MUTED) +
+    rows.append(Text("0".rjust(ylab_w), style="bright_white") +
                 Text("└", style="grey42") + axis)
     rows.append(Text(" " * (ylab_w + 1)) + labels)
     return rows
@@ -414,6 +416,13 @@ def title(text, sub):
     return Group(Large(Text(text, style="bold bright_white")),
                  Text(sub, style="italic bright_white", justify="center"),
                  limit_banner())
+
+
+def box_title(text, style="bright_white"):
+    """A panel title in style. Panel draws a title's own (whole-text) style
+    in its border colour, so a plain Text(style=...) title on a grey border
+    comes out grey; a styled span keeps its colour."""
+    return Text.assemble((text, style))
 
 
 def limit_banner():

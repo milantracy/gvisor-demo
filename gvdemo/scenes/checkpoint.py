@@ -14,7 +14,7 @@ from rich.text import Text
 from ..activity import activity
 from ..hostmon import drop_caches
 from ..runsc import make_bundle
-from ..ui import (FRAME, GV, bar, console, fmt_ms, fmt_spread, out,
+from ..ui import (FRAME, GV, bar, box_title, console, fmt_ms, fmt_spread, out,
                   scene_live, title, with_activity)
 
 TICK_S = 0.5  # the app counts one "request" per tick
@@ -126,7 +126,7 @@ def run(rs, ref, args, results):
         # down as events arrive (a run has 4, or 5 with --cr-cold).
         shown = [event_line(t, m) for t, m in events[-8:]]
         ev = Text("\n").join(shown + [Text("")] * (5 - len(shown)))
-        parts = [Panel(ev, title=Text("Timeline", style="bold bright_white"),
+        parts = [Panel(ev, title=box_title("Timeline", "bold bright_white"),
                        title_align="left", border_style="bright_white"), t]
         cmp = compare()
         if cmp:
@@ -163,8 +163,8 @@ def run(rs, ref, args, results):
                       bar(statistics.median(many), cold, 40, "bright_white"),
                       Text.assemble((fmt_ms(statistics.median(many)), time_s),
                                     (f" median ({fmt_spread(many)})", words)))
-        return Panel(g, title=Text("Same app, two ways to start",
-                                   style="bold white"),
+        return Panel(g, title=box_title("Same app, two ways to start",
+                                        "bold white"),
                      title_align="left", border_style="white")
 
     def render():

@@ -14,7 +14,7 @@ sudo ./demo.py startup cr   # chosen scenes only
 sudo ./demo.py --auto 4     # hands-free: advance every 4 s
 sudo ./demo.py --svg out/   # also save each final screen as SVG for slides
 sudo ./demo.py cr --cr-cold # restore from disk instead of the page cache
-sudo ./demo.py --cpus 8 --memory 16G   # a different limit (default 16 CPUs, 64G)
+sudo ./demo.py --cpus 8 --memory 16G   # a different limit (default 16 CPUs, 32G)
 sudo ./demo.py --no-limit               # sandboxes may use the whole host
 sudo ./demo.py --kiosk                  # loop all scenes unattended, 5 s each
 ```
@@ -49,7 +49,7 @@ number on screen is measured live. The first scene does not offer `b`.
 With `--auto` there is no prompt.
 
 Needs: root, `runsc` on PATH (or `--runsc`), a static `busybox`, and Python 3
-with `rich`. Use a terminal of at least 110×45; the density scene with its full timeline needs about 70 lines. The demo cleans up all
+with `rich`. Use a terminal of at least 110×45. The demo cleans up all
 sandboxes on exit and on Ctrl-C. Only one run can use a work directory at a
 time: a second run on the same `--workdir` refuses to start, because every run
 begins by deleting all sandboxes there. Raw numbers go to
@@ -57,7 +57,7 @@ begins by deleting all sandboxes there. Raw numbers go to
 
 ## Limiting the demo to a smaller node
 
-By default the demo behaves like a 16-CPU, 64 GiB node; `--no-limit` lifts
+By default the demo behaves like a 16-CPU, 32 GiB node; `--no-limit` lifts
 that. A yellow line under every scene title names the limit in force (or
 says there is none), so the audience knows what the numbers ran on.
 
@@ -104,7 +104,7 @@ tools/logo_pixels.py    makes logo_pixels.py from assets/gvisor-logo.png
 | 2 Startup latency | 200 sandboxes one after another, then 200 at once. Each sandbox is a box: grey = not started, amber = started, green = ready (its app printed its first line), red = failed; a legend says so. Under each set's boxes: the wall time for all of them and a latency histogram (own axis, p50 and p95 marked). The "at once" panel is on screen from the start, all grey, until its turn. Measured from `runsc run` until the sandbox is ready: the app inside is running and has printed its first line. | "About 75 ms until a new sandbox is ready, and 200 at once in about 1.3 s." |
 | ⇉ Sandbox churn (`churn`) | At 1, 10, 20, 50 and 100 at once, workers create sandboxes back to back for 5 s each: each sandbox prints, exits and is destroyed, then the worker creates the next. A live count shows the sandboxes created and destroyed so far and the time elapsed. Below it, one bar per level, updated live: sandboxes created and destroyed per second, with p50 ready and destroy times. | "A sandbox is created, ready and gone in about 80 ms; destroying it takes about 3 ms. This 16-CPU node cycles about 145 sandboxes a second, over 8,000 a minute." |
 | 3 Checkpoint/restore | A Python app warms up for real: it imports libraries, then builds a 128 MiB in-memory index, then serves. The demo checkpoints it, restores it, then restores 10 more copies at once from the same image. The counter keeps going from where it stopped. | "Pay warm-up once. Every later copy starts warm in about 110 ms (about 400 ms from disk). Kata has no checkpoint command." |
-| 4 Density | Starts 300 idle sandboxes in batches while a sampler measures each one. | "About 15 MiB of private memory per sandbox, against about 138 MB for a Kata VM measured the same way. Idle sandboxes use no CPU at all." |
+| 4 Density | Starts idle sandboxes in batches, up to 3,000 or until memory use reaches 50% of the limit (whichever comes first; `--density`, `--density-mem`), while a sampler measures each one. | "About 15 MiB of private memory per sandbox, against about 138 MB for a Kata VM measured the same way. Idle sandboxes use no CPU at all." |
 | ★ Scorecard | Summary table, with sample sizes and sources. | |
 
 Results from this host (GCE, 32 vCPU, runsc release-20260727, systrap):
@@ -171,19 +171,18 @@ A background sampler measures every sandbox on its own, every
 - **History**: one panel per metric (host RAM, host CPU, private memory per
   sandbox, startup latency), drawn as a thin line (braille dots, from zero),
   each on its own scale, all on the same time axis in seconds. The title
-  shows the current value and the footer the peak. ┬ marks each batch start and ┊ the moment all sandboxes
+  shows the current value and the footer the peak. ┊ marks the moment all sandboxes
   are idle. Samples are placed by time, so uneven sampling does not distort
   the shape; probe latency draws as steps. Host CPU is whole-host busy time
   from `/proc/stat`, so it includes the `runsc` commands that start
-  sandboxes (per-sandbox CPU, in the tile and table, cannot see those).
-- **Timeline**: what happened, in words, stamped on the charts' clock: the
-  baseline, each batch (sandboxes started and how long it took, the running
-  total, host RAM and its increase, the probed startup latency), the start of
-  the idle phase, an idle summary (host and per-sandbox CPU, private memory
-  vs Kata) and teardown. It grows to at most 20 lines (300 sandboxes in
-  batches of 20 make 19 events); the full list is in the results file.
+  sandboxes (per-sandbox CPU, in the table, cannot see those).
+- **Timeline** (results file only, not on screen): what happened, in words,
+  stamped on the charts' clock: the baseline, each batch (sandboxes started
+  and how long it took, the running total, host RAM and its increase, the
+  probed startup latency), the start of the idle phase, an idle summary
+  (host and per-sandbox CPU, private memory vs Kata) and teardown.
 - **Each sandbox measured separately**: min / p50 / p95 / max of private
-  dirty memory, PSS, CPU and threads, with the heaviest sandbox named. Probe
+  dirty memory, PSS and CPU used. Probe
   sandboxes are excluded from all sampled figures.
 
 | Metric | How it is measured |
@@ -221,7 +220,7 @@ fewer threads per sandbox). The same lock caps the ramp rate at about 90/s
 with 1000 running.
 
 Sizes can be changed with flags: `--runs`, `--burst`, `--cr-mb`,
-`--cr-cold`, `--restores`, `--density`, `--step`, `--parallel`, `--probes`,
+`--cr-cold`, `--restores`, `--density`, `--density-mem`, `--step`, `--parallel`, `--probes`,
 `--sample-interval`, `--idle-window`, `--churn-levels`, `--churn-seconds`,
 `--cpus`, `--memory`, `--kiosk`, `--kiosk-delay`, `--platform`, `--activity`,
 `--activity-width`.
