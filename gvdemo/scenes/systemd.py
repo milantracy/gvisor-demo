@@ -410,6 +410,18 @@ def run(rs, ref, args, results):
                         break
                     os.write(master, keys)
         finally:
+            # Mouse reporting off at once: Chromium turned on any-motion
+            # tracking, and nothing reads the keyboard during the slow stop
+            # below, so every mouse move would queue a report there.
+            os.write(stdout, b"\x1b[?1000l\x1b[?1002l\x1b[?1003l"
+                     b"\x1b[?1006l")
+            if saved:
+                # Then drop input still waiting (reports sent before the
+                # terminal saw that, late answers to Chromium's queries),
+                # which the next prompt would read as typed. Keys pressed
+                # during the stop are kept.
+                time.sleep(0.2)
+                termios.tcflush(sys.stdin, termios.TCIFLUSH)
             sd.call("exec", CID, "systemctl", "stop", "chromium",
                     check=False, log=False)
             try:

@@ -2,6 +2,7 @@
 
 import contextlib
 import os
+import re
 import select
 import shutil
 import signal
@@ -465,13 +466,20 @@ def source_line(ref):
                 style="bright_white")
 
 
+_ESCAPES = re.compile(r"\x1b(\[[0-?]*[ -/]*[@-~]|[PX^_\]][^\x07\x1b]*"
+                      r"(\x07|\x1b\\)?|.)")
+
+
 def read_answer(prompt):
-    """The first letter typed at prompt, lower case ("" for Enter). The end
-    of input (stdin closed) counts as q."""
+    """The first letter typed at prompt, lower case ("" for Enter). Escape
+    sequences in the line (a terminal's late answers to a program's queries,
+    mouse reports) are dropped first. The end of input (stdin closed)
+    counts as q."""
     try:
-        return console.input(prompt).strip().lower()[:1]
+        line = console.input(prompt)
     except EOFError:
         return "q"
+    return _ESCAPES.sub("", line).strip().lower()[:1]
 
 
 class SceneNav(Exception):
