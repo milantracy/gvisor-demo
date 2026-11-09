@@ -37,6 +37,12 @@ def run(rs, ref, args, results):
                   f"({fmt_spread(s['seq_ms'])})",
                   fmt_ms(k) if k else "not measured yet")
 
+    sd = results.get("systemd")
+    if sd:
+        t.add_row("systemd boots to \"running\" (as PID 1)",
+                  f"{fmt_ms(sd['boot_ms'])} (n=1, {sd['units']}, "
+                  f"failed: {sd['failed']})", "—")
+
     tp = results.get("churn")
     if tp and tp["levels"]:
         r = max(tp["levels"], key=lambda r: r["rate"])

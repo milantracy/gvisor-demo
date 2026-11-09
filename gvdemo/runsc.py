@@ -20,6 +20,16 @@ class Runsc:
         self.root.mkdir(parents=True, exist_ok=True)
         activity.set_header(f"runsc {' '.join(self.flags)} <command>")
 
+    def with_flags(self, *extra):
+        """The same runsc (same root and sandboxes) with extra global flags;
+        a flag given again (--network=host) replaces the one set before."""
+        names = {f.split("=", 1)[0] for f in extra}
+        other = Runsc.__new__(Runsc)
+        other.__dict__.update(self.__dict__)
+        other.flags = [f for f in self.flags
+                       if f.split("=", 1)[0] not in names] + list(extra)
+        return other
+
     def cmd(self, *args):
         return [self.binary, *self.flags, *self.place(args)]
 
@@ -160,7 +170,8 @@ def sandbox_bundle(base, cid, cgroup):
     d = base / "ids" / cid
     d.mkdir(parents=True, exist_ok=True)
     spec = json.loads((base / "config.json").read_text())
-    spec["root"]["path"] = str(base / "rootfs")
+    if not Path(spec["root"]["path"]).is_absolute():
+        spec["root"]["path"] = str(base / spec["root"]["path"])
     spec["linux"]["cgroupsPath"] = f"/{cgroup}/{cid}"
     (d / "config.json").write_text(json.dumps(spec))
     return d

@@ -420,12 +420,18 @@ def big_number(text, style):
     return Text("\n".join(rows), style=style, no_wrap=True)
 
 
+KEEP_LOWER = {"systemd", "a", "an", "and", "at", "for", "in", "of", "on",
+              "or", "the", "to", "with"}
+
+
 def title(text, sub):
     """A scene's heading, with the resource setup right under it."""
-    # Capitalize each word's first letter; words with capitals already
-    # ("gVisor", "VMs") stay as they are.
-    text = " ".join(word if any(c.isupper() for c in word)
-                    else word[:1].upper() + word[1:] for word in text.split())
+    # Capitalize each word's first letter. Words with capitals already
+    # ("gVisor", "VMs"), names spelled in lowercase ("systemd") and short
+    # joining words ("in", "and") stay as they are.
+    text = " ".join(word if any(c.isupper() for c in word) or
+                    word in KEEP_LOWER else word[:1].upper() + word[1:]
+                    for word in text.split())
     return Group(Large(Text(text, style="bold bright_white")),
                  Text(sub, style="italic bright_white", justify="center"),
                  limit_banner())
@@ -459,6 +465,15 @@ def source_line(ref):
                 style="bright_white")
 
 
+def read_answer(prompt):
+    """The first letter typed at prompt, lower case ("" for Enter). The end
+    of input (stdin closed) counts as q."""
+    try:
+        return console.input(prompt).strip().lower()[:1]
+    except EOFError:
+        return "q"
+
+
 class SceneNav(Exception):
     """Raised from wait_to_start() to leave a scene before it starts:
     choice is "next" (skip it) or "back" (the previous scene)."""
@@ -485,13 +500,13 @@ def wait_to_start(render=None):
               "[bold]b[/bold]: previous scene · [bold]q[/bold]: quit[/] ")
     _VIEW["prompt"] = prompt
     try:
-        answer = console.input(prompt).strip().lower()
+        answer = read_answer(prompt)
     finally:
         _VIEW["prompt"] = None
-    if answer[:1] == "q":
+    if answer == "q":
         raise KeyboardInterrupt
-    if answer[:1] in ("s", "b"):
-        raise SceneNav("next" if answer[:1] == "s" else "back")
+    if answer in ("s", "b"):
+        raise SceneNav("next" if answer == "s" else "back")
 
 
 def _draw_over(renderable):
@@ -594,7 +609,7 @@ def ask_next(args, last=False, upcoming=None, note="", first=False):
     else:
         _VIEW["prompt"] = prompt
         try:
-            answer = console.input(prompt).strip().lower()
+            answer = read_answer(prompt)
         finally:
             _VIEW["prompt"] = None
     choice = {"b": "back", "r": "again", "q": "quit"}.get(answer[:1], "next")

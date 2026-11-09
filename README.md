@@ -89,10 +89,12 @@ gvdemo/runsc.py         runsc CLI wrapper, busybox OCI bundles, startup latency
 gvdemo/hostmon.py       host measurements: per-sandbox sampler, meminfo, settling
 gvdemo/ui.py            rich helpers: bars, sparklines, formatting, out()/FRAME
 gvdemo/activity.py      the "Behind the scenes" panel: commands and background steps
-gvdemo/scenes/          one module per scene: intro, anywhere, startup, churn,
+gvdemo/scenes/          one module per scene: intro, anywhere, systemd, startup, churn,
                         checkpoint, density, summary
 gvdemo/logo_pixels.py   the gVisor logo as pixel art (generated)
 tools/logo_pixels.py    makes logo_pixels.py from assets/gvisor-logo.png
+images/systemd-ubuntu/  the systemd image's Dockerfile (from gVisor's images/)
+images/systemd-chromium/ that image plus Carbonyl (Chromium in the terminal)
 ```
 
 ## Scenes and talking points
@@ -101,6 +103,7 @@ tools/logo_pixels.py    makes logo_pixels.py from assets/gvisor-logo.png
 |---|---|---|
 | Intro (`intro`) | The gVisor logo in pixel art, on a white card. | "Everything you'll see is measured live on this machine." |
 | 1 Runs anywhere | Checks `/dev/kvm` and vmx/svm, then boots a sandbox that prints gVisor's kernel version and `dmesg`. | "This is a normal cloud VM. A microVM can't start here, and gVisor runs as-is." |
+| systemd (`systemd`) | Boots Ubuntu's systemd as the sandbox's init, as in the [systemd-in-gVisor blog post](https://gvisor.dev/blog/2026/09/17/systemd-in-gvisor/) (`--in-sandbox-cgroup=v2 --allow-suid`), waits until `systemctl is-system-running` says "running", and shows `dmesg | head -3; systemctl status` as run inside (gVisor's kernel answers `dmesg`; systemd, PID 1, answers `status`). Then, on Enter, systemd starts Chromium as a unit (`systemd-run --pty --unit=chromium`): [Carbonyl](https://github.com/fathyb/carbonyl), a Chromium build that renders in the terminal, plays a YouTube video for 30 s. This scene's sandbox uses the host network (`--network=host`; the sentry still handles every socket call) and needs YouTube to be reachable. The image (`images/systemd-chromium`, built on `images/systemd-ubuntu`) is built and exported once, about 620 MB, to `/var/tmp/gvisor-demo/systemd-chromium`; that needs Docker and network the first time. | "A real Linux init system, booted in under a second in a sandbox. And it runs a real browser, playing YouTube, as a systemd service." |
 | 2 Startup latency | 200 sandboxes one after another, then 200 at once. Each sandbox is a box: grey = not started, amber = started, green = ready (its app printed its first line), red = failed; a legend says so. Under each set's boxes: the wall time for all of them and a latency histogram (own axis, p50 and p95 marked). The "at once" panel is on screen from the start, all grey, until its turn. Measured from `runsc run` until the sandbox is ready: the app inside is running and has printed its first line. | "About 75 ms until a new sandbox is ready, and 200 at once in about 1.3 s." |
 | ⇉ Sandbox churn (`churn`) | At 1, 10, 20, 50 and 100 at once, workers create sandboxes back to back for 5 s each: each sandbox prints, exits and is destroyed, then the worker creates the next. A live count shows the sandboxes created and destroyed so far and the time elapsed. Below it, one bar per level, updated live: sandboxes created and destroyed per second, with p50 ready and destroy times. | "A sandbox is created, ready and gone in about 80 ms; destroying it takes about 3 ms. This 16-CPU node cycles about 145 sandboxes a second, over 8,000 a minute." |
 | 3 Checkpoint/restore | A Python app warms up for real: it imports libraries, then builds a 128 MiB in-memory index, then serves. The demo checkpoints it, restores it, then restores 10 more copies at once from the same image. The counter keeps going from where it stopped. | "Pay warm-up once. Every later copy starts warm in about 110 ms (about 400 ms from disk). Kata has no checkpoint command." |
