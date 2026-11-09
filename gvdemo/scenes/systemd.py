@@ -57,7 +57,10 @@ TERM_LINES = 24  # of the command's output shown: up to its services
 # socket call), so Chromium can reach YouTube; the other scenes have none.
 FLAGS = ("--in-sandbox-cgroup=v2", "--allow-suid", "--network=host")
 VIDEO = "https://www.youtube.com/watch?v=Aq5WXmQQooo"
-CHROMIUM_S = 30  # Chromium has the terminal this long
+# How long Chromium has the terminal when nobody may be there to press q:
+# with --auto, and (shorter) with --kiosk. Else it runs until q.
+CHROMIUM_S = 30
+KIOSK_CHROMIUM_S = 15
 INTRO_S = 3  # the card before it, with --auto or --kiosk (else: Enter)
 BAR_ROWS = 2  # the status bar under it
 # Close Chromium early: q or Ctrl-C (not passed on to it).
@@ -126,14 +129,15 @@ class Escapes:
 
 def status_bar(rows, cols, left, kernel):
     """The bottom BAR_ROWS rows while Chromium runs, drawn without moving its
-    cursor: DECSC/DECRC save and restore the position and colours."""
+    cursor: DECSC/DECRC save and restore the position and colours. left is
+    the seconds until Chromium closes, or None for no limit."""
     def row(text):
         return text[:cols].ljust(cols)
     top = row(f" ▶ INSIDE A gVisor SANDBOX     kernel: Linux {kernel}, "
               "gVisor's own kernel, not the host's ")
     low = row(f" Chromium (Carbonyl), started by systemd as chromium.service "
-              f"· every system call goes to gVisor · q: close · "
-              f"{max(0, left):.0f} s left ")
+              f"· every system call goes to gVisor · q: close "
+              + ("" if left is None else f"· {max(0, left):.0f} s left "))
     return (f"\x1b7\x1b[{rows - 1};1H\x1b[0;1;30;102m{top}"
             f"\x1b[{rows};1H\x1b[0;1;97;48;5;22m{low}\x1b8").encode()
 
@@ -341,13 +345,16 @@ def run(rs, ref, args, results):
         return answer != "s"
 
     def play_chromium():
-        """Hand the screen to Chromium for CHROMIUM_S, or until q or Ctrl-C:
+        """Hand the screen to Chromium until q or Ctrl-C, or for CHROMIUM_S
+        with --auto (KIOSK_CHROMIUM_S with --kiosk):
         systemd-run starts it as a unit (chromium.service). It runs on a
         pseudo-terminal of ours, BAR_ROWS shorter than the window; its output
         and the keyboard are relayed, and a bar below says where it runs.
         Returns the seconds it played and the sandbox's peak private
         memory."""
         cols, rows = shutil.get_terminal_size()
+        seconds = (KIOSK_CHROMIUM_S if args.kiosk else
+                   CHROMIUM_S if args.auto else None)
         kernel = state["kernel"]
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ,
@@ -383,8 +390,9 @@ def run(rs, ref, args, results):
             if tty_in:
                 tty.setraw(sys.stdin)
             while p.poll() is None:
-                left = CHROMIUM_S - (time.monotonic() - t0)
-                if left <= 0:
+                left = None if seconds is None else \
+                    seconds - (time.monotonic() - t0)
+                if left is not None and left <= 0:
                     break
                 ready, _, _ = select.select(
                     [master] + ([sys.stdin] if tty_in else []), [], [], 0.1)
@@ -433,7 +441,7 @@ def run(rs, ref, args, results):
             done.set()
             activity.end(token, 0 if p.returncode in (0, None) else
                          p.returncode, fail_note="stopped after "
-                         f"{CHROMIUM_S} s")
+                         f"{time.monotonic() - t0:.0f} s")
             if saved:
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, saved)
             # Leave Carbonyl's alternate screen and mouse reporting, and

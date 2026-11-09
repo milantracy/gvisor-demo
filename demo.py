@@ -114,9 +114,9 @@ def main():
     ap.add_argument("--kiosk", action="store_true",
                     help="run the scenes in a loop, unattended, moving on "
                          "after --kiosk-delay seconds; Ctrl-C stops")
-    ap.add_argument("--kiosk-delay", type=float, default=5, metavar="S",
+    ap.add_argument("--kiosk-delay", type=float, default=7, metavar="S",
                     help="kiosk: seconds to show each finished scene "
-                         "(default 5)")
+                         "(default 7)")
     args = ap.parse_args()
 
     if os.geteuid() != 0:
