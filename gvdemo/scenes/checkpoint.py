@@ -43,15 +43,21 @@ keys = sorted(index)
 t2 = time.monotonic()
 print(f"warm: ready to serve (imports {{t1 - t0:.1f}} s, "
       f"index {{t2 - t1:.1f}} s)", flush=True)
-# A restored copy does not sleep out the rest of its tick: its sleep ends
-# at once (measured: restores took the same time with a 0.2 s tick as with
-# 10 ms polling), so the first line after a restore times the restore.
+# One request per tick, timed by the wall clock and checked every 10 ms.
+# gVisor does not count time spent checkpointed on CLOCK_MONOTONIC (as
+# Linux does not count suspended time), so a plain sleep would resume with
+# the rest of its tick after a restore, and the first line would time the
+# app's sleep, not the restore. The wall clock does move on, so a restored
+# copy finds its next request overdue and serves within 10 ms.
 n = 0
+due = time.time()
 while True:
-    n += 1
-    index[keys[n % len(keys)]]  # each request is an index lookup
-    print(f"requests served: {{n}}", flush=True)
-    time.sleep({tick})
+    if time.time() >= due:
+        n += 1
+        index[keys[n % len(keys)]]  # each request is an index lookup
+        print(f"requests served: {{n}}", flush=True)
+        due = time.time() + {tick}
+    time.sleep(0.01)
 """
 
 
