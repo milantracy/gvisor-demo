@@ -67,18 +67,23 @@ def main():
     ap.add_argument("--restores", "--clones", dest="clones", type=int,
                     default=10, help="checkpoint/restore: copies restored "
                                      "at once from one image")
-    ap.add_argument("--density", type=int, default=3000,
-                    help="density: stop at this many sandboxes, or earlier "
-                         "at --density-mem")
-    ap.add_argument("--density-mem", type=float, default=50, metavar="PCT",
-                    help="density: stop once memory use reaches PCT%% of the "
-                         "memory limit (or of host RAM with --no-limit)")
-    ap.add_argument("--step", type=int, default=20, help="sandboxes per batch")
-    ap.add_argument("--parallel", type=int, default=None,
-                    help="density starts at the same time (default: --step, "
-                         "so each batch starts at once)")
-    ap.add_argument("--probes", type=int, default=3,
-                    help="one-at-a-time start probes after each batch")
+    ap.add_argument("--density", type=int, default=5000,
+                    help="density: sandboxes to start")
+    ap.add_argument("--density-mem", type=float, default=None, metavar="PCT",
+                    help="density: stop once memory use reaches PCT%% of "
+                         "the memory limit (or of host RAM with --no-limit), "
+                         "and say so on screen; without it the ramp fills "
+                         "the memory, stopping just short of the limit")
+    # Measured at 1,500 sandboxes: batches of 100 with 1 probe ramp in 34 s,
+    # batches of 20 with 3 probes in 46 s; 32 workers instead of 20 changed
+    # little, as starts queue on a host-wide kernel lock (pivot_root).
+    ap.add_argument("--step", type=int, default=100,
+                    help="density: sandboxes per batch")
+    ap.add_argument("--parallel", type=int, default=32,
+                    help="density: sandboxes starting at the same time")
+    ap.add_argument("--probes", type=int, default=1,
+                    help="density: one-at-a-time start probes after each "
+                         "batch")
     ap.add_argument("--sample-interval", type=float, default=0.5,
                     help="seconds between density samples")
     ap.add_argument("--idle-window", type=float, default=5,
@@ -123,8 +128,6 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGHUP, stop)
     watch_resize()  # redraw cleanly when the terminal is resized or zoomed
-    if args.parallel is None:
-        args.parallel = args.step
     if args.kiosk:
         args.auto = args.kiosk_delay
     START["wait"] = not args.auto

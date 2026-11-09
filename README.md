@@ -104,7 +104,7 @@ tools/logo_pixels.py    makes logo_pixels.py from assets/gvisor-logo.png
 | 2 Startup latency | 200 sandboxes one after another, then 200 at once. Each sandbox is a box: grey = not started, amber = started, green = ready (its app printed its first line), red = failed; a legend says so. Under each set's boxes: the wall time for all of them and a latency histogram (own axis, p50 and p95 marked). The "at once" panel is on screen from the start, all grey, until its turn. Measured from `runsc run` until the sandbox is ready: the app inside is running and has printed its first line. | "About 75 ms until a new sandbox is ready, and 200 at once in about 1.3 s." |
 | ⇉ Sandbox churn (`churn`) | At 1, 10, 20, 50 and 100 at once, workers create sandboxes back to back for 5 s each: each sandbox prints, exits and is destroyed, then the worker creates the next. A live count shows the sandboxes created and destroyed so far and the time elapsed. Below it, one bar per level, updated live: sandboxes created and destroyed per second, with p50 ready and destroy times. | "A sandbox is created, ready and gone in about 80 ms; destroying it takes about 3 ms. This 16-CPU node cycles about 145 sandboxes a second, over 8,000 a minute." |
 | 3 Checkpoint/restore | A Python app warms up for real: it imports libraries, then builds a 128 MiB in-memory index, then serves. The demo checkpoints it, restores it, then restores 10 more copies at once from the same image. The counter keeps going from where it stopped. | "Pay warm-up once. Every later copy starts warm in about 110 ms (about 400 ms from disk). Kata has no checkpoint command." |
-| 4 Density | Starts idle sandboxes in batches, up to 3,000 or until memory use reaches 50% of the limit (whichever comes first; `--density`, `--density-mem`), while a sampler measures each one. | "About 15 MiB of private memory per sandbox, against about 138 MB for a Kata VM measured the same way. Idle sandboxes use no CPU at all." |
+| 4 Density | Starts up to 5,000 idle sandboxes in batches (`--density`), while a sampler measures each one. If memory fills up first, the ramp stops just short of the limit (about 512 MiB of room left), and a sandbox that fails to start also ends it; `--density-mem PCT` sets a lower stop and shows it on screen. | "About 15 MiB of private memory per sandbox, against about 138 MB for a Kata VM measured the same way. Idle sandboxes use no CPU at all." |
 | ★ Scorecard | Summary table, with sample sizes and sources. | |
 
 Results from this host (GCE, 32 vCPU, runsc release-20260727, systrap):
@@ -196,7 +196,7 @@ A background sampler measures every sandbox on its own, every
 | CPU used since start | the same per-thread schedstat counters read as a running total (ms), so it includes each sandbox's boot work, which the per-sample rate cannot see. It leaves out the `runsc` command that starts the sandbox and kernel setup done before the sandbox's processes exist; the host CPU chart shows those. About 104 ms per sandbox here |
 | procs / threads | sandbox processes, and the sum of their thread counts |
 | startup latency, busy host | median of `--probes` one-at-a-time starts after each batch, measured as in scene 2 |
-| ramp rate | sandboxes ÷ time spent in the ramp; each batch of `--step` sandboxes starts at once (`--parallel` overrides) |
+| ramp rate | sandboxes ÷ time spent in the ramp; batches of `--step` sandboxes (default 100), `--parallel` starting at the same time (default 32) |
 
 Sampler cost: one scan takes about 0.16 s at 200 sandboxes and about 0.8 s
 at 1000. When a scan takes longer than the interval, the next one starts at
@@ -205,7 +205,7 @@ not change start times measurably (1000 sandboxes, ramp p50/p95: 309/563 ms
 with it, 306/545 ms without).
 
 **Start time on a busy host** is measured by probes, never by the ramp.
-After each batch, `--probes` sandboxes (default 3) start one at a time, timed
+After each batch, `--probes` sandboxes (default 1) start one at a time, timed
 as in scene 2 (`run` until the first output line). The ramp starts many
 sandboxes at once, and those starts queue on a host-wide kernel lock:
 `pivot_root` (runsc calls it twice per start) walks every host thread while

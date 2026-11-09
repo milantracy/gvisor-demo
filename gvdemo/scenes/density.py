@@ -20,6 +20,15 @@ from ..ui import (FRAME, GV, KATA, bar, box_title, console, fmt_cpu, fmt_ms,
                   scene_live, title, wait_to_start, with_activity)
 
 
+# Braille dot bits in fill order: down the left column (dots 1, 2, 3, 7),
+# then down the right (4, 5, 6, 8).
+BRAILLE_DOT = (0x01, 0x02, 0x04, 0x40, 0x08, 0x10, 0x20, 0x80)
+
+# The ramp fills the memory allowed, stopping while this much room is left:
+# sandboxes use more while they start (up to --parallel of them at once),
+# and at the limit the kernel would start killing them.
+FULL_MARGIN = 512 * 2**20
+
 PHASES = {"starting": "Starting sandboxes", "all idle": "All idle",
           "tearing down": "Tearing down", "done": "Finished"}
 
@@ -63,42 +72,54 @@ def run(rs, ref, args, results):
         W = main_width()
         ncpu = cpu_capacity()
 
-        # 1. Sandboxes up and running: one small square per sandbox launched
-        # so far, coloured as in startup latency, so the grid grows live.
-        # Nothing shows where it will end: that is not known in advance, the
-        # ramp just stops when memory use reaches the mark.
+        # 1. Sandboxes up and running: one Braille dot per sandbox launched so
+        # far, so the grid grows live. A character holds 8 dots (2 x 4,
+        # filled down the left column, then the right), so a row holds 8
+        # sandboxes per column. A character has one colour, so its dots
+        # share the worst state among them: red if any failed, else amber
+        # if any is starting, else green; sandboxes start in order, so only
+        # the grid's growing end mixes. Nothing shows where the grid will
+        # end: that is not known in advance, the ramp just stops when memory
+        # use reaches the mark.
         launched = [x for x in boxes_state if x != "waiting"]
         cols = max(10, W - 4)
         grid = Text(no_wrap=True)
-        for i, st in enumerate(launched):
-            if i and i % cols == 0:
+        for c in range(0, len(launched), 8):
+            if c and c % (8 * cols) == 0:
                 grid.append("\n")
-            grid.append("▪", style=BOX[st])
+            part = launched[c:c + 8]
+            bits = sum(BRAILLE_DOT[k] for k in range(len(part)))
+            worst = ("failed" if "failed" in part else
+                     "starting" if "starting" in part else "ready")
+            grid.append(chr(0x2800 + bits), style=BOX[worst])
         legend = Text()
         for key, word in (("starting", "Starting"), ("ready", "Running"),
                           ("failed", "Failed")):
-            legend.append("▪ ", style=BOX[key])
+            legend.append("⣿ ", style=BOX[key])
             legend.append(f"{word}   ", style="bright_white")
-        legend.append(f"   ·   ramp {rate}, {args.parallel} sandbox starts at "
-                      "once", style="bright_white")
+        legend.append("each dot is one sandbox   ·   ramp "
+                      f"{rate}, {args.parallel} sandbox starts at once",
+                      style="bright_white")
         legend.no_wrap, legend.overflow = True, "ellipsis"
         head = Table.grid(expand=True)
         head.add_column()
         head.add_column(justify="right", no_wrap=True)
         used, cap = state.get("mem_now") or memory_use()
+        mem = f"   ·   cgroup memory {used / 2**30:.1f} of {cap / 2**30:g} GiB"
+        if args.density_mem:
+            mem += f", stops at {args.density_mem:g}%"
+        elif "mem_stop" in state:
+            mem += ", full"
         head.add_row(Text(PHASES[state["phase"]], style="bold white"),
-                     Text.assemble(
-                         (f"{n:,} running", "bold white"),
-                         (f"   ·   cgroup memory {used / 2**30:.1f} of "
-                          f"{cap / 2**30:g} GiB, stops at "
-                          f"{args.density_mem:g}%", "bright_white")))
+                     Text.assemble((f"{n:,} running", "bold white"),
+                                   (mem, "bright_white")))
         head = Group(head, grid, legend)
+        title = f"Sandboxes up and running: up to {args.density:,}"
+        if args.density_mem:
+            title += (f", or until memory use reaches {args.density_mem:g}% "
+                      f"of the {'limit' if LIMIT['mem_bytes'] else 'host'}")
         progress = Panel(head, border_style="grey30", title_align="left",
-                         title=box_title(
-                             f"Sandboxes up and running: up to "
-                             f"{args.density:,}, or until memory use reaches "
-                             f"{args.density_mem:g}% of the "
-                             f"{'limit' if LIMIT['mem_bytes'] else 'host'}"))
+                         title=box_title(title))
 
         # 3. The headline: memory per sandbox against the Kata reference.
         # It shares a row with the per-sandbox table.
@@ -122,7 +143,7 @@ def run(rs, ref, args, results):
             if dirty:
                 lines.insert(0, Text(f"{kata_mib / dirty:.0f}× less private "
                                      "memory per sandbox", style="bold gold1"))
-            # How many fit at 90% of the memory allowed, from what each
+            # How many fit in all the memory allowed, from what each
             # sandbox has added to the same count the ramp stops on (the
             # cgroup's memory.current), so the two agree and other host
             # activity can't skew it. Kept from the last reading with
@@ -132,7 +153,7 @@ def run(rs, ref, args, results):
                 used, cap = memory_use()
                 each = (used - state["mem0"]) / n / 2**20
                 if each > 0:
-                    state["fits"] = (cap, int(cap / 2**20 * 0.9 / each))
+                    state["fits"] = (cap, int(cap / 2**20 / each))
                     state["each_cg"] = each
             if "fits" in state:
                 cap, fits = state["fits"]
@@ -141,9 +162,9 @@ def run(rs, ref, args, results):
                      f"{'node' if LIMIT['mem_bytes'] else 'host'} fits ≈ ",
                      "white"),
                     (f"{fits:,} gVisor", f"bold {GV}"), (" vs ≈ ", "white"),
-                    (f"{int(cap / 2**20 * 0.9 / kata_mib):,} Kata",
+                    (f"{int(cap / 2**20 / kata_mib):,} Kata",
                      f"bold {KATA}"),
-                    ("  at 90% of its memory", "bright_white")))
+                    ("  when its memory is full", "bright_white")))
         # The same cost three ways, said openly: private memory (the Kata
         # source's metric); what the cgroup counts, which adds the kernel
         # memory billed to it (page tables, kernel stacks, slab); and what
@@ -251,14 +272,17 @@ def run(rs, ref, args, results):
     boxes_state = []  # per sandbox, by index: waiting/starting/ready/failed
 
     def start(cid):
+        """Start one sandbox; False if it failed (it shows red in the grid,
+        and the ramp stops: the node is full)."""
         i = int(cid[1:])
         boxes_state[i] = "starting"
         try:
             rs.call("run", "--bundle", str(b), "-detach", cid)
         except Exception:
             boxes_state[i] = "failed"
-            raise
+            return False
         boxes_state[i] = "ready"
+        return True
 
     events = []  # (seconds on the charts' clock, message), for the results
 
@@ -296,11 +320,14 @@ def run(rs, ref, args, results):
                if probes else f"baseline after {waited:.1f} s")
             ram = host_mib()
             live.update(render())
-            # Stop at --density sandboxes, or earlier at --density-mem
-            # percent of the memory allowed, whichever comes first. Before
-            # each batch, the memory each sandbox has taken so far predicts
-            # where the batch would end; a batch that would pass the mark is
-            # cut short, so the ramp stops just under it, never near an OOM.
+            # Stop at --density sandboxes, or earlier when memory is full:
+            # at --density-mem percent of the memory allowed if given, else
+            # with FULL_MARGIN of room left. Before each
+            # batch, the memory each sandbox has taken so far predicts where
+            # the batch would end; a batch that would pass the mark is cut
+            # short, so the ramp stops just under it. A sandbox that fails to
+            # start also ends the ramp.
+            mark = args.density_mem or 100
             state["mem0"] = used0 = memory_use()[0]
             with ThreadPoolExecutor(args.parallel) as ex:
                 while state["n"] < args.density:
@@ -308,9 +335,13 @@ def run(rs, ref, args, results):
                     size = min(args.step, args.density - state["n"])
                     if state["n"]:
                         each = max(1, (used - used0) / state["n"])
-                        room = int((cap * args.density_mem / 100 - used) / each)
+                        limit = cap * mark / 100
+                        if not args.density_mem:
+                            limit -= FULL_MARGIN
+                        room = int((limit - used) / each)
                         size = min(size, room)
                     if size < 1:
+                        state["mem_stop"] = True
                         ev(f"memory use {used / 2**30:.1f} GiB, "
                            f"{used / cap:.0%} of {cap / 2**30:g} GiB: "
                            f"stopping at {state['n']:,} sandboxes")
@@ -324,11 +355,18 @@ def run(rs, ref, args, results):
                     while not all(f.done() for f in futs):
                         live.update(render())
                         time.sleep(0.1)
-                    for f in futs:
-                        f.result()
+                    ok = sum(f.result() for f in futs)
                     took = time.monotonic() - t0
                     state["launch_s"] += took
-                    state["n"] += len(batch)
+                    state["n"] += ok
+                    if ok < len(batch):
+                        state["mem_stop"] = True
+                        used, cap = memory_use()
+                        ev(f"{len(batch) - ok} of {len(batch)} sandboxes "
+                           f"failed to start at {used / 2**30:.1f} GiB of "
+                           f"{cap / 2**30:g} GiB: the node is full, stopping "
+                           f"at {state['n']:,}")
+                        break
                     probe()
                     now = host_mib()
                     ev(f"batch {len(state['batches'])}: +{len(batch)} "
