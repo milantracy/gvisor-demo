@@ -2,16 +2,20 @@
 
 import contextlib
 import os
+import select
 import shutil
 import signal
+import sys
+import termios
 import time
+import tty
 
 from rich import box
 from rich.console import Console, Group
 from rich.live import Live
 from rich.live_render import LiveRender
 from rich.panel import Panel
-from rich.segment import Segment
+from rich.segment import Segment, Segments
 from rich.table import Table
 from rich.text import Text
 
@@ -31,6 +35,10 @@ _VIEW = {"live": False, "resized": False, "prompt": None}
 # wait: each scene waits for Enter before it starts (off with --auto and
 # --kiosk, which run unattended).
 START = {"wait": True}
+# Set by a scene (the intro) whose page animates while ask_next() waits:
+# render() draws it, moving() says whether it is changing right now (so it
+# is redrawn fast only then). ask_next() uses them once and clears them.
+ANIMATE = {}
 
 
 def _fit():
@@ -473,13 +481,88 @@ def wait_to_start(render=None):
         raise KeyboardInterrupt
 
 
+def _draw_over(renderable):
+    """Draw renderable from the top-left corner straight over what is there,
+    every line padded to the full width, cut to the window. Nothing is
+    erased first: rich's Live erases each old line and then writes the new
+    one, and on a large, colourful frame the terminal can show the erased,
+    empty lines for a moment, a blink."""
+    _fit()
+    lines = console.render_lines(renderable, console.options, pad=True)
+    lines = lines[:console.height]
+    flat = []
+    for k, line in enumerate(lines):
+        flat += line
+        if k < len(lines) - 1:
+            flat.append(Segment.line())
+    with console.capture() as cap:
+        console.print(Segments(flat), end="")
+    console.file.write("\x1b[H" + cap.get())
+    console.file.flush()
+
+
+def _wait_animated(render, moving, prompt, until=None):
+    """Draw render() with prompt below, redrawn as it animates, until a key
+    is pressed (returned) or, with until, that time comes (returns "").
+    prompt may be a function of the seconds left. Keys are read one at a
+    time (cbreak), so the page keeps moving while it waits. It is redrawn
+    20 times a second while moving() is true, else once a second: a full
+    frame is a lot to send over ssh for nothing."""
+    tty_in = sys.stdin.isatty()
+    saved = termios.tcgetattr(sys.stdin) if tty_in else None
+
+    def frame():
+        p = prompt(until - time.monotonic()) if callable(prompt) else prompt
+        return Group(render(), Text.from_markup(p))
+
+    console.clear()
+    console.show_cursor(False)
+    _VIEW["live"] = True
+    try:
+        if tty_in:
+            tty.setcbreak(sys.stdin)
+        drawn = 0.0
+        while until is None or time.monotonic() < until:
+            now = time.monotonic()
+            if _VIEW["resized"]:  # text re-wrapped: start from a clean screen
+                _VIEW["resized"] = False
+                console.clear()
+                drawn = 0.0
+            if moving() or now - drawn >= 1:
+                _draw_over(frame())
+                drawn = now
+            if not tty_in:
+                time.sleep(0.05)
+                continue
+            ready, _, _ = select.select([sys.stdin], [], [], 0.05)
+            if ready:
+                return sys.stdin.read(1)
+        return ""
+    finally:
+        if tty_in:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, saved)
+        _VIEW["live"] = False
+        console.show_cursor(True)
+        console.clear()
+        console.print(*FRAME)  # the page as it stands still
+
+
 def ask_next(args, last=False, upcoming=None, note="", first=False):
     """After a scene: "next", "back" (to the previous scene), "again" (rerun
     this one) or "quit". Back and again run the scene from a clean state.
 
     With --auto there is no question; the demo moves on after a delay,
-    counting down to the upcoming scene so nobody thinks it froze.
+    counting down to the upcoming scene so nobody thinks it froze. A scene
+    that set ANIMATE["render"] keeps animating while this waits.
     """
+    animate = ANIMATE.pop("render", None)
+    moving = ANIMATE.pop("moving", lambda: False)
+    if args.auto and animate:
+        _wait_animated(animate, moving, lambda left: (
+            f"[{MUTED}]{note}Next: [bold white]{upcoming or 'finish'}[/] in "
+            f"{max(0, left):.0f} s · Ctrl-C to stop[/]"),
+            until=time.monotonic() + args.auto)
+        return "next"
     if args.auto:
         end = time.monotonic() + args.auto
         with console.status("") as status:
@@ -493,11 +576,14 @@ def ask_next(args, last=False, upcoming=None, note="", first=False):
     back = "" if first else " · [bold]b[/bold]: previous scene"
     prompt = (f"[grey50]Enter: {nxt}{back} · [bold]r[/bold]: run this scene "
               "again from a clean state · [bold]q[/bold]: quit[/] ")
-    _VIEW["prompt"] = prompt
-    try:
-        answer = console.input(prompt).strip().lower()
-    finally:
-        _VIEW["prompt"] = None
+    if animate:
+        answer = _wait_animated(animate, moving, prompt).strip().lower()
+    else:
+        _VIEW["prompt"] = prompt
+        try:
+            answer = console.input(prompt).strip().lower()
+        finally:
+            _VIEW["prompt"] = None
     choice = {"b": "back", "r": "again", "q": "quit"}.get(answer[:1], "next")
     # The first scene has no previous one: run it again instead.
     return "again" if first and choice == "back" else choice
