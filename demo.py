@@ -29,7 +29,7 @@ from gvdemo.runsc import Runsc  # noqa: E402
 from gvdemo.scenes import SCENES  # noqa: E402
 from gvdemo.activity import activity  # noqa: E402
 from gvdemo.ui import (ACTIVITY, FRAME, HEADER, START, TITLE,  # noqa: E402
-                       ask_next, console, watch_resize)
+                       SceneNav, ask_next, console, watch_resize)
 
 
 def parse_size(text):
@@ -182,8 +182,11 @@ def main():
             FRAME.clear()
             HEADER.clear()
             activity.clear()
+            nav = None  # set when a scene is left at its start prompt
             try:
                 SCENES[s](rs, ref, args, results)
+            except SceneNav as e:
+                nav = e.choice
             except Exception as e:
                 if not args.kiosk:
                     raise
@@ -192,7 +195,7 @@ def main():
                 with console.status("Cleaning up after the failure…"):
                     rs.cleanup()
                     rs.root.mkdir(parents=True, exist_ok=True)
-            if args.svg:
+            if args.svg and nav is None:
                 rec = Console(record=True, width=console.width,
                               file=io.StringIO(), force_terminal=True)
                 for r in FRAME:
@@ -203,9 +206,13 @@ def main():
             last = i == len(scenes) - 1
             upcoming = scenes[0] if args.kiosk and last else \
                 None if last else scenes[i + 1]
-            choice = ask_next(args, last=last, upcoming=upcoming,
-                              note=f"Kiosk · loop {loop} · " if args.kiosk
-                              else "", first=i == 0)
+            if nav is None:
+                choice = ask_next(args, last=last, upcoming=upcoming,
+                                  note=f"Kiosk · loop {loop} · " if args.kiosk
+                                  else "", first=i == 0)
+            else:
+                # The first scene has no previous one: show it again.
+                choice = "again" if nav == "back" and i == 0 else nav
             if choice == "quit":
                 break
             if choice in ("again", "back"):

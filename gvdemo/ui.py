@@ -459,19 +459,30 @@ def source_line(ref):
                 style="bright_white")
 
 
+class SceneNav(Exception):
+    """Raised from wait_to_start() to leave a scene before it starts:
+    choice is "next" (skip it) or "back" (the previous scene)."""
+
+    def __init__(self, choice):
+        super().__init__(choice)
+        self.choice = choice
+
+
 def wait_to_start(render=None):
     """Before a scene starts measuring, once everything that can be prepared
     is ready: draw the scene's live view as it starts (render: heading,
     body and behind-the-scenes panel, as scene_live draws it), cut to fit
     above the prompt line, and wait for Enter, so the presenter can
-    introduce it. q quits, like Ctrl-C."""
+    introduce it. s skips the scene, b goes to the previous one, q quits
+    (like Ctrl-C)."""
     if not START["wait"]:
         return
     if render is not None:
         HEADER[:] = FRAME
         console.clear()
         console.print(LiveRender(render(), vertical_overflow="ellipsis"))
-    prompt = ("[grey50]Enter: start this scene · [bold]q[/bold]: quit[/] ")
+    prompt = ("[grey50]Enter: start this scene · [bold]s[/bold]: skip it · "
+              "[bold]b[/bold]: previous scene · [bold]q[/bold]: quit[/] ")
     _VIEW["prompt"] = prompt
     try:
         answer = console.input(prompt).strip().lower()
@@ -479,6 +490,8 @@ def wait_to_start(render=None):
         _VIEW["prompt"] = None
     if answer[:1] == "q":
         raise KeyboardInterrupt
+    if answer[:1] in ("s", "b"):
+        raise SceneNav("next" if answer[:1] == "s" else "back")
 
 
 def _draw_over(renderable):
@@ -574,8 +587,8 @@ def ask_next(args, last=False, upcoming=None, note="", first=False):
         return "next"
     nxt = "finish" if last else "next scene"
     back = "" if first else " · [bold]b[/bold]: previous scene"
-    prompt = (f"[grey50]Enter: {nxt}{back} · [bold]r[/bold]: run this scene "
-              "again from a clean state · [bold]q[/bold]: quit[/] ")
+    prompt = (f"[grey50]Enter: {nxt}{back} · [bold]r[/bold]: run again · "
+              "[bold]q[/bold]: quit[/] ")
     if animate:
         answer = _wait_animated(animate, moving, prompt).strip().lower()
     else:
