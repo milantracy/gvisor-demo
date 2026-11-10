@@ -36,6 +36,8 @@ GLARE_MAX = 0.8          # how far the brightest pixel moves toward it
 GLARE_RGB = (196, 236, 255)  # the glare's colour: a light icy blue
 GLARE_LEAN = 0.8         # pixels to the right per pixel up
 
+REPO = "github.com/milantracy/gvisor-demo"  # where the demo's code is
+
 
 def hexc(c):
     return "#%02x%02x%02x" % c
@@ -81,7 +83,7 @@ class Logo:
         for s in sorted(ART):  # finest first
             art = ART[s]
             if (len(art[0]) // 2 <= options.max_width and
-                    (len(art) + 1) // 2 <= options.max_height - 6):
+                    (len(art) + 1) // 2 <= options.max_height - 8):
                 break
         else:
             yield Text("gVisor", style="bold bright_white", justify="center")
@@ -141,7 +143,9 @@ def page(glare=None):
                  Text("Live demo", style="bold bright_white",
                       justify="center"),
                  Text("Every number on the next pages is measured on this "
-                      "machine", style="bright_white", justify="center"))
+                      "machine", style="bright_white", justify="center"),
+                 Text(""),
+                 Text(REPO, style="grey62", justify="center"))
 
 
 def run(rs, ref, args, results):
