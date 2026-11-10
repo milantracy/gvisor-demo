@@ -33,8 +33,8 @@ from rich.text import Text
 
 from ..activity import activity
 from ..hostmon import proc_sample, sandbox_procs
-from ..ui import (FRAME, GV, START, Large, box_title, console, fmt_ms, out,
-                  read_answer, scene_live, title, wait_to_start,
+from ..ui import (FRAME, GV, START, _VIEW, Large, box_title, console, fmt_ms,
+                  out, read_answer, scene_live, title, wait_to_start,
                   with_activity)
 
 IMAGES = Path(__file__).resolve().parents[2] / "images"
@@ -65,7 +65,9 @@ INTRO_S = 3  # the card before it, with --auto or --kiosk (else: Enter)
 BAR_ROWS = 2  # the status bar under it
 # Close Chromium early: q or Ctrl-C (not passed on to it).
 CLOSE_KEYS = (b"q", b"\x03")
-HOLD_S = 4  # the result stays on screen this long before the prompt
+# With --auto or --kiosk, the result stays on screen this long before the
+# Chromium card (else: until Enter).
+HOLD_S = 4
 
 # Every capability: Docker's --privileged. In gVisor these are capabilities
 # of the sandbox's own kernel, not of the host.
@@ -328,9 +330,22 @@ def run(rs, ref, args, results):
             state["mem"] = mib
 
     def ask_chromium():
-        """Show the card that says what Chromium runs on, and whether to
-        play: Enter plays, s skips, q quits. With --auto or --kiosk the card
-        shows for INTRO_S, then it plays."""
+        """Whether to play Chromium. The result stays up until Enter (s
+        skips Chromium, q quits); then the card that says what Chromium runs
+        on, and again Enter plays, s skips, q quits. With --auto or --kiosk
+        the card shows for INTRO_S, then it plays."""
+        if START["wait"]:
+            prompt = ("[grey50]Enter: next, Chromium in this sandbox · "
+                      "[bold]s[/bold]: skip it · [bold]q[/bold]: quit[/] ")
+            _VIEW["prompt"] = prompt
+            try:
+                answer = read_answer(prompt)
+            finally:
+                _VIEW["prompt"] = None
+            if answer == "q":
+                raise KeyboardInterrupt
+            if answer == "s":
+                return False
         state["kernel"] = exec_out("uname", "-r").strip()
         console.clear()
         console.print(intro_card(state["kernel"]))
@@ -475,7 +490,8 @@ def run(rs, ref, args, results):
             state["terminal"] = out_text.rstrip("\n").splitlines()
             parse_status(out_text)
             sample_memory()
-            time.sleep(HOLD_S)
+            if not START["wait"]:
+                time.sleep(HOLD_S)
             FRAME.append(render())
             results["systemd"] = {
                 "boot_ms": state["boot_ms"],
