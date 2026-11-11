@@ -50,7 +50,7 @@ def limit_node(name, cpus=None, mem_bytes=None):
     """
     cg = CGROUP_ROOT / name
     remove_cgroup(name)
-    cg.mkdir()
+    cg.mkdir(exist_ok=True)
     if cpus:
         (cg / "cpuset.cpus").write_text(f"0-{cpus - 1}")
         (cg / "cpuset.mems").write_text(
@@ -62,12 +62,20 @@ def limit_node(name, cpus=None, mem_bytes=None):
 
 
 def remove_cgroup(name, timeout_s=10.0):
-    """Remove a cgroup tree, deepest directories first.
+    """Kill every process in a cgroup tree, then remove the tree, deepest
+    directories first.
 
-    Killed sandboxes take a moment to exit, and a cgroup that still has
-    processes cannot be removed, so keep trying for up to timeout_s.
+    The kill (cgroup.kill) also stops sandboxes that runsc no longer knows
+    about, such as one still starting when the demo quit; their processes
+    would keep the tree, and the next run could not create it. Killed
+    processes take a moment to exit, and a cgroup that still has processes
+    cannot be removed, so keep trying for up to timeout_s.
     """
     cg = CGROUP_ROOT / name
+    try:
+        (cg / "cgroup.kill").write_text("1")
+    except OSError:
+        pass  # no such cgroup, or a kernel without cgroup.kill (< 5.14)
     end = time.monotonic() + timeout_s
     while cg.exists():
         for d in sorted((p for p in cg.rglob("*") if p.is_dir()),

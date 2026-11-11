@@ -352,9 +352,16 @@ def run(rs, ref, args, results):
                                   f"{args.parallel} at a time")
                     t0 = time.monotonic()
                     futs = [ex.submit(start, c) for c in batch]
-                    while not all(f.done() for f in futs):
-                        live.update(render())
-                        time.sleep(0.1)
+                    try:
+                        while not all(f.done() for f in futs):
+                            live.update(render())
+                            time.sleep(0.1)
+                    except BaseException:
+                        # Ctrl-C: drop the starts not begun yet, so that
+                        # leaving the pool waits only for those running.
+                        for f in futs:
+                            f.cancel()
+                        raise
                     ok = sum(f.result() for f in futs)
                     took = time.monotonic() - t0
                     state["launch_s"] += took
