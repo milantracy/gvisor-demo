@@ -6,54 +6,74 @@ Kata Containers figures are published reference numbers from
 `kata_reference.json`, each with its source (shown on screen, except the
 short cloud note in scene 1).
 
+## Get started
+
+You need a Linux host with root access. These steps are for Ubuntu or
+Debian.
+
+1.  Install Python's `rich` library, a static `busybox`, and `zstd` (to
+    unpack gVisor's release). Install `rich` for the system Python: the demo
+    runs with `sudo`, which does not see a `pip install --user`.
+
+    ```
+    sudo apt install python3-rich busybox-static zstd
+    ```
+
+2.  Install `runsc`, gVisor's runtime (see
+    [gVisor's install guide](https://gvisor.dev/docs/user_guide/install/)):
+
+    ```
+    ARCH=$(uname -m)
+    URL=https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}
+    wget ${URL}/gvisor.tar.zstd ${URL}/gvisor.tar.zstd.sha512
+    sha512sum -c gvisor.tar.zstd.sha512
+    sudo tar --zstd -xf gvisor.tar.zstd -C /usr/local/bin
+    rm -f gvisor.tar.zstd gvisor.tar.zstd.sha512
+    ```
+
+3.  Download the demo and run it:
+
+    ```
+    git clone https://github.com/milantracy/gvisor-demo.git
+    cd gvisor-demo
+    sudo ./demo.py
+    ```
+
+There is nothing to build. Use a terminal of at least 110×45. The demo
+limits its sandboxes to 16 CPUs and 32 GiB with a cgroup v2 group (the
+default on current distributions). On a host without cgroup v2, or to give
+the sandboxes the whole host, add `--no-limit`.
+
+The systemd scene also needs Docker, and network access the first time: it
+builds its image (about 620 MB) and exports it to `/var/tmp/gvisor-demo/`
+once. Its Chromium step plays a YouTube video, so YouTube must be
+reachable. To run without this scene, name the other scenes, for example
+`sudo ./demo.py intro anywhere startup churn cr density summary`.
+
 ## Run
 
 ```
-sudo ./demo.py              # all scenes; Enter: next · b: back · r: replay · q: quit
+sudo ./demo.py              # all scenes
 sudo ./demo.py startup cr   # chosen scenes only
-sudo ./demo.py --auto 4     # hands-free: advance every 4 s
-sudo ./demo.py --svg out/   # also save each final screen as SVG for slides
-sudo ./demo.py cr --cr-cold # restore from disk instead of the page cache
-sudo ./demo.py --cpus 8 --memory 16G   # a different limit (default 16 CPUs, 32G)
-sudo ./demo.py --no-limit               # sandboxes may use the whole host
-sudo ./demo.py --kiosk                  # loop all scenes unattended, 7 s each
+sudo ./demo.py --auto 4     # hands-free: next scene every 4 s
+sudo ./demo.py --kiosk      # unattended loop, 7 s per scene (--kiosk-delay)
+sudo ./demo.py --svg out/   # also save each final screen as SVG
+sudo ./demo.py --no-limit   # sandboxes may use the whole host
 ```
 
-A **Behind the scenes** panel shows every runsc command as it runs (with its
-duration, and a one-line explanation the first time each command appears),
-the commands in flight, and background steps such as the density sampler,
-start probes, the memory baseline and teardown. It sits beside the scene on
-terminals of 170+ columns and below it otherwise; `--activity side|bottom|off`
-overrides that. Beside the scene it takes the columns beyond 130 (56 to 90
-wide); `--activity-width N` sets it exactly. Command durations there are whole-command times (a `run`
-includes the sandbox exiting), so they are longer than the startup latency
-figures in the scenes.
+Keys:
+- Before a scene: Enter starts it, `s` skips it, `b` goes back, `q` quits.
+- After a scene: Enter goes on, `r` runs it again, `b` goes back, `q`
+  quits. `r` and `b` start from a clean state.
 
-Scene titles are drawn double size with DEC double-size lines, which macOS
-Terminal.app, xterm, Windows Terminal and Konsole support. Other terminals
-(iTerm2) show the title twice; use `--title-size normal` there.
-
-**Kiosk mode** (`--kiosk`) runs the scenes in a loop for a booth or a
-screen nobody attends: each finished scene stays up for `--kiosk-delay`
-seconds (default 7) with a countdown to the next one, and after the
-scorecard the loop starts again from a clean state. A scene that fails is
-shown, cleaned up and skipped instead of stopping the loop. Ctrl-C, a
-closed terminal (SIGHUP) or a kill (SIGTERM) all stop it and clean up
-every sandbox and the cgroup.
-
-After each scene the demo asks what to do next: Enter goes on, `b` goes
-back to the previous scene, `r` runs the same scene again, and `q` quits.
-Back and replay run the scene from a clean state (all sandboxes, images,
-logs and bundles from the previous attempt are deleted first), since every
-number on screen is measured live. The first scene does not offer `b`.
-With `--auto` there is no prompt.
-
-Needs: root, `runsc` on PATH (or `--runsc`), a static `busybox`, and Python 3
-with `rich`. Use a terminal of at least 110×45. The demo cleans up all
-sandboxes on exit and on Ctrl-C. Only one run can use a work directory at a
-time: a second run on the same `--workdir` refuses to start, because every run
-begins by deleting all sandboxes there. Raw numbers go to
-`/tmp/gvisor-demo/gvisor-demo-results.json`.
+Notes:
+- The **Behind the scenes** panel lists each runsc command as it runs. It
+  is beside the scene on terminals of 170+ columns, else below it
+  (`--activity side|bottom|off`).
+- Titles use double-size lines (Terminal.app, xterm, Windows Terminal,
+  Konsole). In iTerm2, use `--title-size normal`.
+- Ctrl-C or a closed terminal stops the demo and removes every sandbox.
+  Raw numbers go to `/tmp/gvisor-demo/gvisor-demo-results.json`.
 
 ## Limiting the demo to a smaller node
 
@@ -79,23 +99,6 @@ stays in the caller's cgroup. A limit larger than the host is reduced to
 what the host has.
 Measured with `--cpus 8`: sandbox churn peaks at 80/s (172/s on all 32
 CPUs), and the group's CPU use tops out at 7.6 cores.
-
-## Layout
-
-```
-demo.py                 entry point: options, scene loop, SVG export
-kata_reference.json     Kata figures and their sources
-gvdemo/runsc.py         runsc CLI wrapper, busybox OCI bundles, startup latency
-gvdemo/hostmon.py       host measurements: per-sandbox sampler, meminfo, settling
-gvdemo/ui.py            rich helpers: bars, sparklines, formatting, out()/FRAME
-gvdemo/activity.py      the "Behind the scenes" panel: commands and background steps
-gvdemo/scenes/          one module per scene: intro, anywhere, systemd, startup, churn,
-                        checkpoint, density, summary
-gvdemo/logo_pixels.py   the gVisor logo as pixel art (generated)
-tools/logo_pixels.py    makes logo_pixels.py from assets/gvisor-logo.png
-images/systemd-ubuntu/  the systemd image's Dockerfile (from gVisor's images/)
-images/systemd-chromium/ that image plus Carbonyl (Chromium in the terminal)
-```
 
 ## Scenes and talking points
 
