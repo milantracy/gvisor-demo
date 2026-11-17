@@ -207,13 +207,18 @@ def run(rs, ref, args, results):
         cur["t0"] = t0 = time.monotonic()
         stop = t0 + args.churn_seconds
 
-        def worker():
-            while time.monotonic() < stop:
+        halted = threading.Event()
+        errors = []
+
+        def work():
+            while not halted.is_set() and time.monotonic() < stop:
                 with lock:
                     k = next(seq)
                 # Fixed-width IDs: no ID is a prefix of another.
                 launched = time.monotonic()
                 ms = time_to_ready(rs, b, f"ch{idx:02d}-{k:06d}")
+                if ms is None:
+                    raise RuntimeError("a churn sandbox failed to become ready")
                 # time_to_ready returns once `runsc run` has returned: the
                 # app has exited and the sandbox has been destroyed.
                 life = (time.monotonic() - launched) * 1000
@@ -223,14 +228,27 @@ def run(rs, ref, args, results):
                         cur["lives"].append((launched + ms / 1000, ms,
                                              life - ms))
 
+        def worker():
+            try:
+                work()
+            except Exception as error:
+                errors.append(error)
+                halted.set()
+
         threads = [threading.Thread(target=worker) for _ in range(n)]
-        for t in threads:
-            t.start()
-        while time.monotonic() < stop:
-            time.sleep(0.1)
-        b1 = cpu_busy_s()  # CPU over the window, not the drain after it
-        for t in threads:
-            t.join()  # let in-flight sandboxes finish; they don't count
+        try:
+            for thread in threads:
+                thread.start()
+            while not halted.is_set() and time.monotonic() < stop:
+                time.sleep(0.1)
+            b1 = cpu_busy_s()
+        finally:
+            halted.set()
+            for thread in threads:
+                if thread.ident is not None:
+                    thread.join()
+        if errors:
+            raise errors[0]
         with lock:
             st = life_stats(cur["lives"], stop)
         st = st or {"n": 0, "start": 0, "start95": 0, "destroy": 0, "life": 0}

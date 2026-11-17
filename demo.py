@@ -9,63 +9,51 @@ Usage: sudo ./demo.py [all|intro|anywhere|systemd|startup|churn|cr|density|summa
 """
 
 import argparse
-import fcntl
-import hashlib
 import io
 import json
 import os
 import shutil
 import signal
+import platform
+import termios
+import uuid
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))  # also works under `python3 -I`
 
-from rich.console import Console  # noqa: E402
+from gvdemo.options import configure, parse_size, prerequisites  # noqa: E402
+from gvdemo.session import ResultFile, cleanup_session, create_workdir  # noqa: E402
 
-from gvdemo.hostmon import limit_node, remove_cgroup  # noqa: E402
-from gvdemo.runsc import Runsc  # noqa: E402
-from gvdemo.scenes import SCENES  # noqa: E402
-from gvdemo.activity import activity  # noqa: E402
-from gvdemo.ui import (ACTIVITY, FRAME, HEADER, START, TITLE,  # noqa: E402
-                       SceneNav, ask_next, console, watch_resize)
+SCENE_NAMES = ('intro', 'anywhere', 'systemd', 'startup', 'churn', 'cr', 'density', 'summary')
 
 
-def parse_size(text):
-    """'16G', '512M' or a byte count, to bytes; None stays None."""
-    if not text:
-        return None
-    units = {"K": 2**10, "M": 2**20, "G": 2**30, "T": 2**40}
-    t = text.strip().upper().rstrip("IB")
-    if t and t[-1] in units:
-        return int(float(t[:-1]) * units[t[-1]])
-    return int(t)
-
-
-def main():
+def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    # No default list: Python 3.12 checks a list default against choices as
-    # one value and rejects it. No scenes given means all of them.
-    ap.add_argument("scenes", nargs="*", choices=["all", *SCENES])
+    ap.add_argument("scenes", nargs="*", metavar="SCENE")
+    ap.add_argument("--profile", choices=["quick", "full"], default="quick",
+                    help="quick (default): small local demo; full: all presentation scenes")
+    ap.add_argument("--check", action="store_true", help="check requirements without creating sandboxes")
+    ap.add_argument("--output", metavar="PATH", help="new results JSON file (never overwrites a file)")
     ap.add_argument("--runsc", default=shutil.which("runsc") or "runsc")
     ap.add_argument("--platform", default=None, help="runsc --platform")
-    ap.add_argument("--workdir", default="/tmp/gvisor-demo/work")
+    ap.add_argument("--workdir", default=None, help="new private work directory; defaults to a unique directory in /tmp")
     ap.add_argument("--reference", default=str(HERE / "kata_reference.json"))
-    ap.add_argument("--runs", type=int, default=200, help="sequential startups")
-    ap.add_argument("--burst", type=int, default=200, help="concurrent startups")
+    ap.add_argument("--runs", type=int, default=None, help="sequential startups")
+    ap.add_argument("--burst", type=int, default=None, help="concurrent startups")
     ap.add_argument("--churn-levels", default="1,10,20,50,100",
                     help="sandbox churn: sandboxes starting at once, per level")
     ap.add_argument("--churn-seconds", type=float, default=5,
                     help="sandbox churn: seconds to run each level")
-    ap.add_argument("--cr-mb", type=int, default=128,
+    ap.add_argument("--cr-mb", type=int, default=None,
                     help="checkpoint/restore: size of the app's in-memory "
                          "index, MiB (sets its warm-up time)")
     ap.add_argument("--cr-cold", action="store_true",
                     help="restore from disk: drop the host page cache first")
     ap.add_argument("--restores", "--clones", dest="clones", type=int,
-                    default=10, help="checkpoint/restore: copies restored "
+                    default=None, help="checkpoint/restore: copies restored "
                                      "at once from one image")
     ap.add_argument("--density", type=int, default=5000,
                     help="density: sandboxes to start")
@@ -88,11 +76,11 @@ def main():
                     help="seconds between density samples")
     ap.add_argument("--idle-window", type=float, default=5,
                     help="seconds to watch the sandboxes idle after the ramp")
-    ap.add_argument("--cpus", type=int, default=16, metavar="N",
+    ap.add_argument("--cpus", type=int, default=None, metavar="N",
                     help="limit all sandboxes to N CPUs, like a smaller node "
-                         "(default 16)")
-    ap.add_argument("--memory", default="32G", metavar="SIZE",
-                    help="limit all sandboxes to SIZE of memory (default 32G)")
+                         "(profile default)")
+    ap.add_argument("--memory", default=None, metavar="SIZE",
+                    help="limit all sandboxes to SIZE of memory (profile default)")
     ap.add_argument("--no-limit", action="store_true",
                     help="no cgroup limit: sandboxes may use the whole host")
     ap.add_argument("--title-size", choices=["large", "normal"],
@@ -117,16 +105,27 @@ def main():
     ap.add_argument("--kiosk-delay", type=float, default=7, metavar="S",
                     help="kiosk: seconds to show each finished scene "
                          "(default 7)")
-    args = ap.parse_args()
+    return configure(ap, ap.parse_args(argv), SCENE_NAMES)
 
-    if os.geteuid() != 0:
-        sys.exit("runsc needs root: run with sudo")
-    # A closed terminal (SIGHUP) or a kill (SIGTERM) must still clean up
-    # sandboxes and the cgroup, like Ctrl-C does; this matters for --kiosk.
-    def stop(signum, frame):
-        raise KeyboardInterrupt
-    signal.signal(signal.SIGTERM, stop)
-    signal.signal(signal.SIGHUP, stop)
+
+def main(argv=None):
+    args = parse_args(argv)
+    errors = prerequisites(args)
+    if errors:
+        sys.exit("Requirements not met:\n- " + "\n- ".join(errors))
+    if args.check:
+        print(f"Requirements satisfied for {args.profile}: {', '.join(args.scenes)}")
+        return
+
+    # Import rendering only after reporting missing Python dependencies.
+    from rich.console import Console
+    from gvdemo.activity import activity
+    from gvdemo.hostmon import limit_node, remove_cgroup
+    from gvdemo.runsc import Runsc
+    from gvdemo.scenes import SCENES
+    from gvdemo.ui import (ACTIVITY, FRAME, HEADER, START, TITLE, SceneNav,
+                           ask_next, console, watch_resize)
+
     watch_resize()  # redraw cleanly when the terminal is resized or zoomed
     if args.kiosk:
         args.auto = args.kiosk_delay
@@ -135,47 +134,40 @@ def main():
     TITLE["large"] = args.title_size == "large"
     ACTIVITY["width"] = args.activity_width
     scenes = args.scenes
-    if not scenes or "all" in scenes:
-        scenes = list(SCENES)
     ref = json.loads(Path(args.reference).read_text()) \
         if Path(args.reference).exists() else {}
-    # Every run starts by deleting all sandboxes under its work dir, so two
-    # runs on one work dir would destroy each other's sandboxes. Refuse.
-    lock_path = Path(args.workdir).parent / f".{Path(args.workdir).name}.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock = open(lock_path, "a+")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        lock.seek(0)
-        sys.exit(f"another demo run (pid {lock.read().strip() or '?'}) is "
-                 f"using {args.workdir}; stop it, or pass a different "
-                 "--workdir")
-    lock.seek(0)
-    lock.truncate()
-    lock.write(str(os.getpid()))
-    lock.flush()
+    output = ResultFile(args.output)
+    args.output = str(output.path)
+    rs = None
+    workdir = None
     cg_name = None
-    if not args.no_limit:
-        # A limit larger than the host means the host: say so, don't fail.
-        cpus = min(args.cpus, os.cpu_count()) if args.cpus else None
-        total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
-        mem = parse_size(args.memory)
-        mem = min(mem, total) if mem else None
-        if cpus != args.cpus or (mem and mem < parse_size(args.memory)):
-            console.print(f"[yellow]This host has {os.cpu_count()} CPUs and "
-                          f"{total / 2**30:.0f} GiB; limiting to what it has.")
-        # One group per work dir; the run lock makes it ours alone.
-        cg_name = "gvisor-demo-" + hashlib.sha1(
-            str(Path(args.workdir).resolve()).encode()).hexdigest()[:8]
-        limit_node(cg_name, cpus, mem)
-    flags = [f"--platform={args.platform}"] if args.platform else []
-    rs = Runsc(args.runsc, args.workdir, flags)
-    rs.cleanup()
-    rs.root.mkdir(parents=True, exist_ok=True)
-    results = {}
+    terminal = termios.tcgetattr(sys.stdin) if sys.stdin.isatty() else None
+    results = {"execution": {"profile": args.profile, "scenes": scenes,
+                             "machine": platform.machine(), "status": "running",
+                             "platform": args.platform or "default"}}
     loop = 1
+
+    def stop(signum, frame):
+        if rs is not None:
+            rs.cancel_pending()
+        raise KeyboardInterrupt
+
+    previous = {sig: signal.signal(sig, stop) for sig in
+                (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
     try:
+        workdir = create_workdir(args.workdir)
+        args.workdir = str(workdir)
+        if not args.no_limit:
+            cpus = min(args.cpus, len(os.sched_getaffinity(0)))
+            total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+            mem = min(parse_size(args.memory), total)
+            cg_name = "gvisor-demo-" + uuid.uuid4().hex
+            limit_node(cg_name, cpus, mem)
+            results["execution"].update(cpus=cpus, memory_bytes=mem, cgroup=cg_name)
+        flags = [f"--platform={args.platform}"] if args.platform else []
+        rs = Runsc(args.runsc, args.workdir, flags)
+        results["execution"]["runsc_version"] = rs.version()
+        output.save(results)
         i = 0
         while i < len(scenes):
             s = scenes[i]
@@ -185,6 +177,7 @@ def main():
             nav = None  # set when a scene is left at its start prompt
             try:
                 SCENES[s](rs, ref, args, results)
+                output.save(results)
             except SceneNav as e:
                 nav = e.choice
             except Exception as e:
@@ -192,6 +185,11 @@ def main():
                     raise
                 # Unattended: show the failure, clean up, and keep going.
                 console.print(f"\n[bold red]Scene {s} failed:[/] {e}")
+                metadata = results["execution"]
+                metadata["scene_error_count"] = metadata.get("scene_error_count", 0) + 1
+                metadata["scene_errors"] = (metadata.get("scene_errors", []) +
+                                            [{"scene": s, "error": str(e)}])[-100:]
+                output.save(results)
                 with console.status("Cleaning up after the failure…"):
                     rs.cleanup()
                     rs.root.mkdir(parents=True, exist_ok=True)
@@ -230,16 +228,36 @@ def main():
                 with console.status("Cleaning up for the next loop…"):
                     rs.cleanup()
                     rs.root.mkdir(parents=True, exist_ok=True)
-                results = {}
+                output.save(results)
+                results = {"execution": dict(results["execution"], loop=loop + 1)}
                 loop += 1
                 i = 0
+        results["execution"]["status"] = ("failed" if results["execution"].get("scene_error_count")
+                                             else "completed")
     except KeyboardInterrupt:
-        pass
+        results["execution"]["status"] = "interrupted"
+    except BaseException as error:
+        results["execution"].update(status="failed", error=str(error))
+        raise
     finally:
-        with console.status("Cleaning up sandboxes…"):
-            rs.cleanup()
-            if cg_name:
-                remove_cgroup(cg_name)
+        # Do not let a second termination signal interrupt resource teardown.
+        for sig in previous:
+            signal.signal(sig, signal.SIG_IGN)
+        try:
+            cleanup_session(rs, cg_name, workdir, remove_cgroup)
+        except Exception as error:
+            results["execution"].update(status="failed", cleanup_error=str(error))
+            raise
+        finally:
+            try:
+                output.save(results)
+                print(f"Raw results: {output.path}")
+            finally:
+                output.close()
+                if terminal is not None:
+                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, terminal)
+                for sig, handler in previous.items():
+                    signal.signal(sig, handler)
 
 
 if __name__ == "__main__":
