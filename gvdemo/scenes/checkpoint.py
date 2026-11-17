@@ -2,6 +2,8 @@
 
 import re
 import shutil
+import tempfile
+import os
 import statistics
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -270,7 +272,7 @@ def run(rs, ref, args, results):
             rs.call("restore", f"--image-path={img}", "--bundle", str(b),
                     "-detach", name, out=f)
         if not wait_for(lg, "requests served"):
-            rows[name]["how"] += " (no output within 30 s)"
+            raise RuntimeError(f"{name} did not resume serving within 30 seconds")
         rows[name]["t_ready"] = time.monotonic()
         rows[name]["ms"] = (rows[name]["t_ready"] - t0) * 1000
         return rows[name]["ms"]
@@ -296,12 +298,14 @@ def run(rs, ref, args, results):
                 break
             # Seen once and not reproduced: the app printed nothing at all.
             # Keep its log, then retry rather than hang the demo.
-            keep = rs.workdir.parent / f"failed-original-{attempt}.log"
-            shutil.copy(log, keep)
+            fd, filename = tempfile.mkstemp(prefix="gvisor-demo-failed-", suffix=".log", dir="/tmp")
+            keep = Path(filename)
+            with os.fdopen(fd, "wb") as failed:
+                failed.write(log.read_bytes())
             rs.destroy("original")
             if attempt == 2:
                 raise RuntimeError(f"the app did not start serving twice; "
-                                   f"logs in {rs.workdir.parent}")
+                                   f"last log in {keep}")
             ev(f"original did not start serving within 30 s (log kept in "
                f"{keep}); retrying")
         cold = (time.monotonic() - t0) * 1000
@@ -311,7 +315,8 @@ def run(rs, ref, args, results):
         live.update(render())
         # Let it serve for STAGE_S, then checkpoint at the count that takes,
         # so every run shows the same history before the restore.
-        wait_for(log, f"requests served: {CHECKPOINT_AT}\n")
+        if not wait_for(log, f"requests served: {CHECKPOINT_AT}\n"):
+            raise RuntimeError("original did not reach the checkpoint request count")
 
         # 2. Checkpoint, then stop the original. runsc writes the image
         # through the page cache and returns before it reaches the disk.

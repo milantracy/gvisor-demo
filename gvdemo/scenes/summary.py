@@ -1,6 +1,5 @@
 """Scorecard: gVisor results from this run next to the Kata references."""
 
-import json
 import statistics
 
 from rich import box
@@ -94,6 +93,4 @@ def run(rs, ref, args, results):
     for k in ("startup", "checkpoint", "density"):
         if "source" in ref.get(k, {}):
             out(Text(f"Kata {k}: {ref[k].get('source', '')}", style=MUTED))
-    path = rs.workdir.parent / "gvisor-demo-results.json"
-    path.write_text(json.dumps(results, indent=2))
-    out(Text(f"Raw results: {path}", style=MUTED))
+    out(Text(f"Raw results: {args.output}", style=MUTED))

@@ -167,20 +167,23 @@ def run(rs, ref, args, results):
         # still timed from each sandbox's own `runsc run`. Workers do not
         # redraw the screen: Live redraws on its own, and redraws from 200
         # threads slowed the launches down.
-        go = threading.Barrier(args.burst + 1)
+        go = threading.Barrier(args.burst + 1, timeout=60)
 
         def one(i):
             go.wait()
             burst[i] = time_to_ready(rs, b, f"b{i:04d}") or False
 
         with ThreadPoolExecutor(args.burst) as ex:
-            futs = [ex.submit(one, i) for i in range(args.burst)]
-            for i in range(args.burst):
-                burst[i] = STARTING
-            t0 = time.monotonic()  # the wall clock starts at the release
-            go.wait()
-            for f in futs:
-                f.result()
+            try:
+                futs = [ex.submit(one, i) for i in range(args.burst)]
+                for i in range(args.burst):
+                    burst[i] = STARTING
+                t0 = time.monotonic()  # the wall clock starts at the release
+                go.wait()
+                for f in futs:
+                    f.result()
+            finally:
+                go.abort()
         state["burst_wall"] = (time.monotonic() - t0) * 1000
         live.update(render())
 
@@ -190,3 +193,5 @@ def run(rs, ref, args, results):
     # TODO: measure Kata on a KVM host with this same bundle and put the
     # result in kata_reference.json as startup.value_ms. Until then there is
     # no Kata startup bar.
+    if len(seq) != args.runs or not all(burst):
+        raise RuntimeError("one or more startup sandboxes failed")

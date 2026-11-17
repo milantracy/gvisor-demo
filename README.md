@@ -8,99 +8,115 @@ short cloud note in scene 1).
 
 ## Get started
 
-You need a Linux host with root access. These steps are for Ubuntu or
-Debian.
+The initial supported environment is Ubuntu 24.04 on x86_64, with root
+access and a writable cgroup v2 hierarchy. Use a development machine or a
+disposable VM. The quick profile does not need Docker or nested virtualization.
 
-1.  Install Python's `rich` library, a static `busybox`, and `zstd` (to
-    unpack gVisor's release). Install `rich` for the system Python: the demo
-    runs with `sudo`, which does not see a `pip install --user`.
+1. Install the complete gVisor distribution from the
+   [installation guide](https://gvisor.dev/docs/user_guide/install/).
+   Keep all files in the release together if you move it.
+2. Install the demo dependencies for the system Python (sudo does not see
+   a user-only Rich installation):
 
-    ```
-    sudo apt install python3-rich busybox-static zstd
-    ```
+   ```shell
+   sudo apt-get update
+   sudo apt-get install -y git python3 python3-rich busybox-static
+   ```
 
-2.  Install `runsc`, gVisor's runtime (see
-    [gVisor's install guide](https://gvisor.dev/docs/user_guide/install/)):
+3. Clone and check requirements, then run:
 
-    ```
-    ARCH=$(uname -m)
-    URL=https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}
-    wget ${URL}/gvisor.tar.zstd ${URL}/gvisor.tar.zstd.sha512
-    sha512sum -c gvisor.tar.zstd.sha512
-    sudo tar --zstd -xf gvisor.tar.zstd -C /usr/local/bin
-    rm -f gvisor.tar.zstd gvisor.tar.zstd.sha512
-    ```
+   ```shell
+   git clone https://github.com/milantracy/gvisor-demo.git
+   cd gvisor-demo
+   sudo python3 demo.py --check
+   sudo python3 demo.py
+   ```
 
-3.  Download the demo and run it:
+There is nothing to build. Use a terminal of at least 110×45. If runsc is
+outside sudo's search path, add `--runsc /absolute/path/to/runsc` to both
+commands. `--check` reports missing prerequisites without creating sandboxes.
 
-    ```
-    git clone https://github.com/milantracy/gvisor-demo.git
-    cd gvisor-demo
-    sudo ./demo.py
-    ```
+## Profiles and scenes
 
-There is nothing to build. Use a terminal of at least 110×45. The demo
-limits its sandboxes to 16 CPUs and 32 GiB with a cgroup v2 group (the
-default on current distributions). On a host without cgroup v2, or to give
-the sandboxes the whole host, add `--no-limit`.
+The default `--profile quick` runs `intro anywhere startup cr summary`.
+It uses 10 sequential starts, 10 concurrent starts, a 16 MiB app, and one restore followed by two concurrent
+restores, capped at two CPUs and 2 GiB. Limits are reduced to available
+resources. The Python UI remains outside the sandbox cgroup.
 
-The systemd scene also needs Docker, and network access the first time: it
-builds its image (about 620 MB) and exports it to `/var/tmp/gvisor-demo/`
-once. Its Chromium step plays a YouTube video, so YouTube must be
-reachable. To run without this scene, name the other scenes, for example
-`sudo ./demo.py intro anywhere startup churn cr density summary`.
+`--profile full` runs every scene with the original presentation settings:
+200 sequential starts, 200 concurrent starts, a 128 MiB app, one restore followed by 10 concurrent restores,
+and up to 5,000 idle sandboxes, capped at 16 CPUs and 32 GiB.
 
-## Run
+Explicit scene names replace the profile's sequence. `all` selects all
+scenes; workload flags override the selected profile's defaults.
 
-```
-sudo ./demo.py              # all scenes
-sudo ./demo.py startup cr   # chosen scenes only
-sudo ./demo.py --auto 4     # hands-free: next scene every 4 s
-sudo ./demo.py --kiosk      # unattended loop, 7 s per scene (--kiosk-delay)
-sudo ./demo.py --svg out/   # also save each final screen as SVG
-sudo ./demo.py --no-limit   # sandboxes may use the whole host
+```shell
+sudo python3 demo.py startup cr summary --runs 5 --burst 5
+sudo python3 demo.py --profile full --check
+sudo python3 demo.py --profile full
+sudo python3 demo.py --auto 1 --output quick-results.json
+sudo python3 demo.py --kiosk
+sudo python3 demo.py --svg captures/
 ```
 
-Keys:
-- Before a scene: Enter starts it, `s` skips it, `b` goes back, `q` quits.
-- After a scene: Enter goes on, `r` runs it again, `b` goes back, `q`
-  quits. `r` and `b` start from a clean state.
+The systemd scene additionally needs Docker and network access. It builds
+and exports a Chromium image on first use (about 620 MB) into a private
+root-owned cache under `/var/tmp/gvisor-demo`. Its browser uses the host
+network to play a YouTube video. The image currently supports x86_64 only.
 
-Notes:
-- The **Behind the scenes** panel lists each runsc command as it runs. It
-  is beside the scene on terminals of 170+ columns, else below it
-  (`--activity side|bottom|off`).
-- Titles use double-size lines (Terminal.app, xterm, Windows Terminal,
-  Konsole). In iTerm2, use `--title-size normal`.
-- Ctrl-C or a closed terminal stops the demo and removes every sandbox.
-  Raw numbers go to `/tmp/gvisor-demo/gvisor-demo-results.json`.
+On a host without the required cgroup controllers, `--no-limit` explicitly
+allows sandbox workloads to use the machine's available resources.
+`--cr-cold` runs sync and drops the **whole host's page cache**. Use it only
+on a disposable machine. High density and churn settings are explicit workloads,
+not part of the quick sequence.
 
-## Limiting the demo to a smaller node
+## Controls and output
 
-By default the demo behaves like a 16-CPU, 32 GiB node; `--no-limit` lifts
-that. A yellow line under every scene title names the limit in force (or
-says there is none), so the audience knows what the numbers ran on.
+Before a scene: Enter starts it, `s` skips, `b` goes back, and `q` quits.
+After a scene: Enter continues, `r` repeats, `b` goes back, and `q` quits.
+Ctrl-C, SIGTERM and SIGHUP stop the run and clean up its resources.
 
-`--cpus N` and `--memory SIZE` put every sandbox in one cgroup v2 group,
-pinned to the first N CPUs (`cpuset`, so runsc and the Go runtime inside it
-see N CPUs) and capped at SIZE (`memory.max`). runsc places each sandbox in
-the cgroup named by its spec's `cgroupsPath` (by default `/<container id>`
-at the cgroup root), so with a limit each sandbox gets a small bundle of its
-own: a `config.json` that points at the shared rootfs and sets
-`cgroupsPath` to `/<group>/<container id>`. The group is removed at exit.
+Each run gets its own private directory under `/tmp`, which is removed on
+exit. `--workdir` accepts a new path only, below trusted ancestors without
+symlinks. Existing directories are refused. Commands through the runsc wrapper and startup readiness waits time out
+after 60 seconds; checkpoint application readiness waits use 30 seconds.
+Docker image builds and the interactive browser have separate lifetimes. A failed cleanup preserves the directory
+and reports the error.
 
-With a limit, CPU figures are the group's own use (`cpu.stat`), out of N
-cores, and the density projection uses the memory limit. What the limit covers: every sandbox's processes (sentry, gofer, stubs) in
-all scenes, including probes and restores; their memory, including
-kernel memory and the page cache they create; and each `runsc` command once
-it joins the sandbox's cgroup. Not covered: the first moments of each
-`runsc` command, and the demo's own Python process (UI and sampler), which
-stays in the caller's cgroup. A limit larger than the host is reduced to
-what the host has.
-Measured with `--cpus 8`: sandbox churn peaks at 80/s (172/s on all 32
-CPUs), and the group's CPU use tops out at 7.6 cores.
+JSON results are saved after scenes and on exit, including failures and
+interruptions, without requiring the summary scene. By default the file has
+a unique name in the current directory. `--output PATH` chooses a new file;
+existing files and symlinks are refused. When using sudo, the file is created
+with the invoking user's permissions. Execution metadata records profile,
+scene selection, runtime version, platform selection and resource limits.
+
+The activity panel lists runsc commands. Use `--activity off` to hide it
+or `--title-size normal` if double-size titles do not render correctly.
+See `python3 demo.py --help` for every option.
+
+## Tests
+
+```shell
+python3 -m unittest discover -s tests -v
+```
+
+Privileged integration tests must run on a disposable Linux host with the
+requirements above and runsc installed:
+
+```shell
+sudo env GVDEMO_INTEGRATION=1 python3 -m unittest discover -s tests -v
+```
+
+Unit CI uses Ubuntu 24.04. Integration CI is manually dispatched on a dedicated,
+freshly provisioned runner labeled `gvisor-demo-disposable`. Do not attach a
+persistent or production machine to that label. The integration suite runs the
+quick profile, concurrent runs, runtime failures, directory rejection and
+SIGINT/SIGTERM/SIGHUP cleanup. It does not download browser images or use YouTube.
 
 ## Scenes and talking points
+
+The sizes in this presentation table describe the `full` profile. The default
+`quick` profile uses the smaller sizes listed above.
 
 | Scene | What happens | Say |
 |---|---|---|

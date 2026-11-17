@@ -1,0 +1,26 @@
+name: Tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      integration:
+        description: Run privileged tests on the dedicated disposable runner
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y python3-rich busybox-static
+      - run: /usr/bin/python3 -m unittest discover -s tests -v
+  integration:
+    if: github.event_name == 'workflow_dispatch' && inputs.integration
+    runs-on: [self-hosted, linux, x64, gvisor-demo-disposable]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run on a freshly provisioned disposable host with runsc installed
+        run: sudo env GVDEMO_INTEGRATION=1 /usr/bin/python3 -m unittest discover -s tests -v

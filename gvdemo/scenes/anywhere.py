@@ -85,3 +85,5 @@ def run(rs, ref, args, results):
         state["res"] = res
         time.sleep(0.3)
     FRAME.append(render())
+    if not ok:
+        raise RuntimeError(f"sandbox failed: {res.stderr.strip()[:200]}")

@@ -49,10 +49,10 @@ def limit_node(name, cpus=None, mem_bytes=None):
     by giving each a cgroupsPath of /<name>/<container id>.
     """
     cg = CGROUP_ROOT / name
-    remove_cgroup(name)
-    cg.mkdir(exist_ok=True)
+    cg.mkdir()
     if cpus:
-        (cg / "cpuset.cpus").write_text(f"0-{cpus - 1}")
+        allowed = sorted(os.sched_getaffinity(0))[:cpus]
+        (cg / "cpuset.cpus").write_text(",".join(str(cpu) for cpu in allowed))
         (cg / "cpuset.mems").write_text(
             (CGROUP_ROOT / "cpuset.mems.effective").read_text().strip())
     if mem_bytes:
@@ -84,8 +84,10 @@ def remove_cgroup(name, timeout_s=10.0):
                 d.rmdir()
             except OSError:
                 pass
-        if not cg.exists() or time.monotonic() > end:
+        if not cg.exists():
             return
+        if time.monotonic() > end:
+            raise RuntimeError(f"cgroup still contains resources: {cg}")
         time.sleep(0.2)
 
 

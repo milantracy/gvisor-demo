@@ -31,6 +31,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from ..session import private_cache
 from ..activity import activity
 from ..hostmon import proc_sample, sandbox_procs
 from ..ui import (FRAME, GV, START, _VIEW, Large, box_title, console, fmt_ms,
@@ -169,6 +170,13 @@ def intro_card(kernel):
 
 
 def ensure_rootfs():
+    cache = private_cache(ROOTFS.parents[1])
+    with open(cache / '.lock', 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        _ensure_rootfs()
+
+
+def _ensure_rootfs():
     """Build the images and export the last one's root filesystem, once."""
     if (ROOTFS / "sbin" / "init").exists():
         return
@@ -397,8 +405,7 @@ def run(rs, ref, args, results):
                           f"{max(1, (cols - len(hello)) // 2)}H\x1b[1;97m"
                           f"{hello}\x1b[0m").encode())
         t0 = time.monotonic()
-        p = subprocess.Popen(sd.cmd(*cmd), stdin=slave, stdout=slave,
-                             stderr=slave, start_new_session=True)
+        p = sd.start(cmd, stdin=slave, stdout=slave, stderr=slave)
         os.close(slave)
         esc, drawn = Escapes(), 0.0
         try:
@@ -445,24 +452,23 @@ def run(rs, ref, args, results):
                 # during the stop are kept.
                 time.sleep(0.2)
                 termios.tcflush(sys.stdin, termios.TCIFLUSH)
-            sd.call("exec", CID, "systemctl", "stop", "chromium",
-                    check=False, log=False)
             try:
-                p.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                p.kill()
-                p.wait()
-            os.close(master)
-            done.set()
-            activity.end(token, 0 if p.returncode in (0, None) else
-                         p.returncode, fail_note="stopped after "
-                         f"{time.monotonic() - t0:.0f} s")
-            if saved:
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, saved)
-            # Leave Carbonyl's alternate screen and mouse reporting, and
-            # show the cursor again.
-            os.write(stdout, b"\x1b[r\x1b[?1049l\x1b[?1000l\x1b[?1002l"
-                     b"\x1b[?1003l\x1b[?1006l\x1b[?25h\x1b[0m")
+                if not sd._cancelled.is_set():
+                    sd.call("exec", CID, "systemctl", "stop", "chromium",
+                            check=False, log=False)
+            finally:
+                try:
+                    sd.finish(p)
+                finally:
+                    os.close(master)
+                    done.set()
+                    activity.end(token, 0 if p.returncode in (0, None) else
+                                 p.returncode, fail_note="stopped after "
+                                 f"{time.monotonic() - t0:.0f} s")
+                    if saved:
+                        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, saved)
+                    os.write(stdout, b"\x1b[r\x1b[?1049l\x1b[?1000l\x1b[?1002l"
+                             b"\x1b[?1003l\x1b[?1006l\x1b[?25h\x1b[0m")
         return time.monotonic() - t0, peak[0]
 
     def parse_status(text):
